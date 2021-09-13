@@ -9,7 +9,7 @@ from nets.graph_encoder import GraphAttentionEncoder
 from torch.nn import DataParallel
 from utils.beam_search import CachedLookup
 from utils.functions import sample_many
-
+from entmax import entmax15
 
 def set_decode_type(model, decode_type):
     if isinstance(model, DataParallel):
@@ -52,7 +52,9 @@ class AttentionModel(nn.Module):
                  normalization='batch',
                  n_heads=8,
                  checkpoint_encoder=False,
-                 shrink_size=None):
+                 shrink_size=None,
+                 attention_type = "full",
+                 attention_neighborhood = 5):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -74,6 +76,9 @@ class AttentionModel(nn.Module):
         self.n_heads = n_heads
         self.checkpoint_encoder = checkpoint_encoder
         self.shrink_size = shrink_size
+
+        self.attention_type = attention_type
+        self.attention_neighborhood = attention_neighborhood
 
         # Problem specific context parameters (placeholder and step context dimension)
         if self.is_vrp or self.is_orienteering or self.is_pctsp:
@@ -360,6 +365,7 @@ class AttentionModel(nn.Module):
         if normalize:
             log_p = torch.log_softmax(log_p / self.temp, dim=-1)
 
+
         assert not torch.isnan(log_p).any()
 
         return log_p, mask
@@ -463,9 +469,15 @@ class AttentionModel(nn.Module):
             compatibility[mask[None, :, :, None, :].expand_as(compatibility)] = -math.inf
 
         # Batch matrix multiplication to compute heads (n_heads, batch_size, num_steps, val_size)
-        heads = torch.matmul(torch.softmax(compatibility, dim=-1), glimpse_V)
+        # softmax and attention
+        if self.attention_type == "full":
+            heads = torch.matmul(torch.softmax(compatibility, dim=-1), glimpse_V)
+            
+        if self.attention_type == "sparse":
+            heads = torch.matmul(entmax15(compatibility, dim=-1), glimpse_V)
 
         # Project to get glimpse/updated context node embedding (batch_size, num_steps, embedding_dim)
+        # make it the correct form for linear because multihead
         glimpse = self.project_out(
             heads.permute(1, 2, 3, 0, 4).contiguous().view(-1, num_steps, 1, self.n_heads * val_size))
 
@@ -474,6 +486,7 @@ class AttentionModel(nn.Module):
         final_Q = glimpse
         # Batch matrix multiplication to compute logits (batch_size, num_steps, graph_size)
         # logits = 'compatibility'
+        # this is the final score to be used i guess
         logits = torch.matmul(final_Q, logit_K.transpose(-2, -1)).squeeze(-2) / math.sqrt(final_Q.size(-1))
 
         # From the logits compute the probabilities by clipping, masking and softmax
