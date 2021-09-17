@@ -81,6 +81,13 @@ class CVRP(object):
 
         return beam_search(state, beam_size, propose_expansions)
 
+    # def get_search_neighborhood(dataset, neighborhood_size):
+
+    #     distance_matrix = torch.cdist(dataset["loc"], dataset["loc"], p=2.0, compute_mode='use_mm_for_euclid_dist_if_necessary')
+    #     neighbors = torch.topk(distance_matrix, neighborhood_size, largest = False)
+
+    #     return neighbors
+
 
 class SDVRP(object):
 

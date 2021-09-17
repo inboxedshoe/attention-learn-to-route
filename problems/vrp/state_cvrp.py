@@ -1,12 +1,13 @@
 import torch
 from typing import NamedTuple
 from utils.boolmask import mask_long2bool, mask_long_scatter
-
+import math
 
 class StateCVRP(NamedTuple):
     # Fixed input
     coords: torch.Tensor  # Depot + loc
     demand: torch.Tensor
+    dist: torch.Tensor
 
     # If this state contains multiple copies (i.e. beam search) for the same instance, then for memory efficiency
     # the coords and demands tensors are not kept multiple times, so we need to use the ids to index the correct rows.
@@ -29,9 +30,9 @@ class StateCVRP(NamedTuple):
         else:
             return mask_long2bool(self.visited_, n=self.demand.size(-1))
 
-    @property
-    def dist(self):
-        return (self.coords[:, :, None, :] - self.coords[:, None, :, :]).norm(p=2, dim=-1)
+    # @property
+    # def dist(self):
+    #     return (self.coords[:, :, None, :] - self.coords[:, None, :, :]).norm(p=2, dim=-1)
 
     def __getitem__(self, key):
         assert torch.is_tensor(key) or isinstance(key, slice)  # If tensor, idx all tensors by this tensor:
@@ -56,9 +57,11 @@ class StateCVRP(NamedTuple):
         demand = input['demand']
 
         batch_size, n_loc, _ = loc.size()
+        coords = torch.cat((depot[:, None, :], loc), -2)
         return StateCVRP(
-            coords=torch.cat((depot[:, None, :], loc), -2),
+            coords=coords,
             demand=demand,
+            dist =(coords[:, :, None, :] - coords[:, None, :, :]).norm(p=2, dim=-1),
             ids=torch.arange(batch_size, dtype=torch.int64, device=loc.device)[:, None],  # Add steps dimension
             prev_a=torch.zeros(batch_size, 1, dtype=torch.long, device=loc.device),
             used_capacity=demand.new_zeros(batch_size, 1),
@@ -79,7 +82,7 @@ class StateCVRP(NamedTuple):
     def get_final_cost(self):
 
         assert self.all_finished()
-
+        #fix this later with new distance matrix
         return self.lengths + (self.coords[self.ids, 0, :] - self.cur_coord).norm(p=2, dim=-1)
 
     def update(self, selected):
@@ -97,6 +100,7 @@ class StateCVRP(NamedTuple):
         #     1,
         #     selected[:, None].expand(selected.size(0), 1, self.coords.size(-1))
         # )[:, 0, :]
+        #also fix with new distance matrix
         lengths = self.lengths + (cur_coord - self.cur_coord).norm(p=2, dim=-1)  # (batch_dim, 1)
 
         # Not selected_demand is demand of first node (by clamp) so incorrect for nodes that visit depot!
@@ -129,7 +133,7 @@ class StateCVRP(NamedTuple):
     def get_current_node(self):
         return self.prev_a
 
-    def get_mask(self):
+    def get_mask(self, neighborhood_size = None):
         """
         Gets a (batch_size, n_loc + 1) mask with the feasible actions (0 = depot), depends on already visited and
         remaining capacity. 0 = feasible, 1 = infeasible
@@ -146,6 +150,33 @@ class StateCVRP(NamedTuple):
         exceeds_cap = (self.demand[self.ids, :] + self.used_capacity[:, :, None] > self.VEHICLE_CAPACITY)
         # Nodes that cannot be visited are already visited or too much demand to be served now
         mask_loc = visited_loc.to(exceeds_cap.dtype) | exceeds_cap
+
+
+        #mask out any nodes not in k-nearest
+        if neighborhood_size is not None:
+            # neighbors = torch.topk(self.dist, 10, largest = False).indices 
+            #select the distance vector for the node we are at now
+            current_dis_vector = torch.index_select(self.dist,1,self.prev_a.reshape(-1))[:,0,:].unsqueeze(1)
+            #we only want the current accessible top k nodes so offset any nodes previously masked
+            #current_dis_vector.masked_fill_(mask_loc, float("1"))
+            current_dis_vector[:,:,1:][mask_loc] = +math.inf
+
+            #get the k nearest neighbors and then the cutoff point for every node's neighbors
+            #neighbors_cutoff = torch.topk(self.dist, neighborhood_size, largest = False)[0][:,:,-1:]
+            #neighbors_cutoff = torch.gather(neighbors_cutoff.reshape(512,-1),-2,self.prev_a)
+            neighbors_cutoff = torch.topk(current_dis_vector, neighborhood_size, largest = False)[0][:,:,-1:].reshape(512,-1)
+
+            #set all distances greater than cutoff to true
+            is_not_neighbor = current_dis_vector.squeeze() > neighbors_cutoff
+            is_not_neighbor.unsqueeze_(1)
+
+            #add the non-neighbors to the mask
+            mask_loc = mask_loc | is_not_neighbor[:,:,1:]
+
+            # is_not_neighbor = torch.ones(mask_loc.shape).to(exceeds_cap.dtype)
+            # is_not_neighbor = is_not_neighbor.index_fill_(-1,neighbors,False)     
+
+
 
         # Cannot visit the depot if just visited and still unserved nodes
         mask_depot = (self.prev_a == 0) & ((mask_loc == 0).int().sum(-1) > 0)

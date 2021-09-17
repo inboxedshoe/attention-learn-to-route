@@ -9,9 +9,9 @@ def get_options(args=None):
         description="Attention based model for solving the Travelling Salesman Problem with Reinforcement Learning")
 
     # Data
-    parser.add_argument('--problem', default='tsp', help="The problem to solve, default 'tsp'")
-    parser.add_argument('--attention', default='full', help="Type of attention, full/limited/sparse")
-    parser.add_argument('--attention_neighborhood', type=int, default=5, help="Closest N neighbors to consider for attention")
+    parser.add_argument('--problem', default='cvrp', help="The problem to solve, default 'cvrp'")
+    parser.add_argument('--attention_type', default='full', help="Type of attention, full/sparse")
+    parser.add_argument('--attention_neighborhood', type=int, default=10, help="Closest N neighbors to consider for attention, default = None")
     parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=512, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=1280000, help='Number of instances per epoch during training')

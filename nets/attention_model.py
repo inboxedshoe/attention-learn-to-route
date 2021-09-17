@@ -54,7 +54,8 @@ class AttentionModel(nn.Module):
                  checkpoint_encoder=False,
                  shrink_size=None,
                  attention_type = "full",
-                 attention_neighborhood = 5):
+                 attention_neighborhood = None,
+                 logger = None):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -77,8 +78,14 @@ class AttentionModel(nn.Module):
         self.checkpoint_encoder = checkpoint_encoder
         self.shrink_size = shrink_size
 
-        self.attention_type = attention_type
+        self.logger = logger
+
+        # self.attention_type = attention_type
         self.attention_neighborhood = attention_neighborhood
+        self.attention_type_function = {
+            'full': torch.softmax,
+            'sparse': entmax15
+        }.get(attention_type, "full")
 
         # Problem specific context parameters (placeholder and step context dimension)
         if self.is_vrp or self.is_orienteering or self.is_pctsp:
@@ -234,6 +241,7 @@ class AttentionModel(nn.Module):
         state = self.problem.make_state(input)
 
         # Compute keys, values for the glimpse and keys for the logits once as they can be reused in every step
+        # TODO
         fixed = self._precompute(embeddings)
 
         batch_size = state.ids.size(0)
@@ -354,10 +362,12 @@ class AttentionModel(nn.Module):
                 self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
 
         # Compute keys and values for the nodes
+        # TODO limit these for limited attention
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed, state)
 
         # Compute the mask
-        mask = state.get_mask()
+        # TODO or add to mask
+        mask = state.get_mask(neighborhood_size = self.attention_neighborhood)
 
         # Compute logits (unnormalized log_p)
         log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask)
@@ -466,15 +476,22 @@ class AttentionModel(nn.Module):
         compatibility = torch.matmul(glimpse_Q, glimpse_K.transpose(-2, -1)) / math.sqrt(glimpse_Q.size(-1))
         if self.mask_inner:
             assert self.mask_logits, "Cannot mask inner without masking logits"
+            # compatibility.masked_fill_(mask[None, :, :, None, :].expand_as(compatibility), -math.inf)
             compatibility[mask[None, :, :, None, :].expand_as(compatibility)] = -math.inf
 
         # Batch matrix multiplication to compute heads (n_heads, batch_size, num_steps, val_size)
         # softmax and attention
-        if self.attention_type == "full":
-            heads = torch.matmul(torch.softmax(compatibility, dim=-1), glimpse_V)
-            
-        if self.attention_type == "sparse":
-            heads = torch.matmul(entmax15(compatibility, dim=-1), glimpse_V)
+
+        # see what type of attention it is and apply it corrospondingly
+        heads = torch.matmul(self.attention_type_function(compatibility, dim=-1), glimpse_V)
+
+        # if self.attention_type == "full":
+        #     heads = torch.matmul(torch.softmax(compatibility, dim=-1), glimpse_V)
+
+        # if self.attention_type == "sparse":
+        #     heads = torch.matmul(entmax15(compatibility, dim=-1), glimpse_V)
+
+
 
         # Project to get glimpse/updated context node embedding (batch_size, num_steps, embedding_dim)
         # make it the correct form for linear because multihead
@@ -493,7 +510,8 @@ class AttentionModel(nn.Module):
         if self.tanh_clipping > 0:
             logits = torch.tanh(logits) * self.tanh_clipping
         if self.mask_logits:
-            logits[mask] = -math.inf
+            # logits[mask] = -math.inf
+            logits.masked_fill_(mask, -math.inf)
 
         return logits, glimpse.squeeze(-2)
 

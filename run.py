@@ -65,7 +65,10 @@ def run(opts):
         normalization=opts.normalization,
         tanh_clipping=opts.tanh_clipping,
         checkpoint_encoder=opts.checkpoint_encoder,
-        shrink_size=opts.shrink_size
+        shrink_size=opts.shrink_size,
+        logger = tb_logger,
+        attention_type = opts.attention_type,
+        attention_neighborhood=opts.attention_neighborhood
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:
