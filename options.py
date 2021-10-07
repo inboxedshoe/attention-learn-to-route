@@ -10,9 +10,9 @@ def get_options(args=None):
 
     # Data
     parser.add_argument('--problem', default='cvrp', help="The problem to solve, default 'cvrp'")
-    parser.add_argument('--attention_type', default='full', help="Type of attention, full/sparse")
-    parser.add_argument('--attention_neighborhood', type=int, default=10, help="Closest N neighbors to consider for attention, default = None")
-    parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
+    parser.add_argument('--attention_type', default='sparse', help="Type of attention, full/sparse")
+    parser.add_argument('--attention_neighborhood', type=int, default=0, help="Closest N neighbors to consider for attention, default = None")
+    parser.add_argument('--graph_size', type=int, default=50, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=512, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=1280000, help='Number of instances per epoch during training')
     parser.add_argument('--val_size', type=int, default=10000,

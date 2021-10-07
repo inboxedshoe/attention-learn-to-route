@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch import nn
 import math
-
+from entmax import entmax15
 
 class SkipConnection(nn.Module):
 
@@ -21,7 +21,8 @@ class MultiHeadAttention(nn.Module):
             input_dim,
             embed_dim,
             val_dim=None,
-            key_dim=None
+            key_dim=None,
+            attention_type = "full"
     ):
         super(MultiHeadAttention, self).__init__()
 
@@ -44,7 +45,16 @@ class MultiHeadAttention(nn.Module):
 
         self.W_out = nn.Parameter(torch.Tensor(n_heads, val_dim, embed_dim))
 
+        self.attention_type_function = {
+            'full': torch.softmax,
+            'sparse': entmax15
+        }.get(attention_type, "full")
+
+        self.attention_type = attention_type
+
         self.init_parameters()
+
+
 
     def init_parameters(self):
 
@@ -92,7 +102,9 @@ class MultiHeadAttention(nn.Module):
             mask = mask.view(1, batch_size, n_query, graph_size).expand_as(compatibility)
             compatibility[mask] = -np.inf
 
-        attn = torch.softmax(compatibility, dim=-1)
+        #changed
+        #attn = torch.softmax(compatibility, dim=-1)
+        attn = self.attention_type_function(compatibility, dim = -1)
 
         # If there are nodes with no neighbours then softmax returns nan so we fix them to 0
         if mask is not None:
@@ -159,13 +171,15 @@ class MultiHeadAttentionLayer(nn.Sequential):
             embed_dim,
             feed_forward_hidden=512,
             normalization='batch',
+            attention_type = "full"
     ):
         super(MultiHeadAttentionLayer, self).__init__(
             SkipConnection(
                 MultiHeadAttention(
                     n_heads,
                     input_dim=embed_dim,
-                    embed_dim=embed_dim
+                    embed_dim=embed_dim,
+                    attention_type=attention_type
                 )
             ),
             Normalization(embed_dim, normalization),
@@ -188,7 +202,8 @@ class GraphAttentionEncoder(nn.Module):
             n_layers,
             node_dim=None,
             normalization='batch',
-            feed_forward_hidden=512
+            feed_forward_hidden=512,
+            attention_type = "full"
     ):
         super(GraphAttentionEncoder, self).__init__()
 
@@ -196,7 +211,7 @@ class GraphAttentionEncoder(nn.Module):
         self.init_embed = nn.Linear(node_dim, embed_dim) if node_dim is not None else None
 
         self.layers = nn.Sequential(*(
-            MultiHeadAttentionLayer(n_heads, embed_dim, feed_forward_hidden, normalization)
+            MultiHeadAttentionLayer(n_heads, embed_dim, feed_forward_hidden, normalization, attention_type = attention_type)
             for _ in range(n_layers)
         ))
 

@@ -1,3 +1,4 @@
+from entmax.activations import Entmax15
 import torch
 from torch import nn
 from torch.utils.checkpoint import checkpoint
@@ -9,7 +10,7 @@ from nets.graph_encoder import GraphAttentionEncoder
 from torch.nn import DataParallel
 from utils.beam_search import CachedLookup
 from utils.functions import sample_many
-from entmax import entmax15
+from entmax import entmax15,  Entmax15Loss
 
 def set_decode_type(model, decode_type):
     if isinstance(model, DataParallel):
@@ -53,9 +54,7 @@ class AttentionModel(nn.Module):
                  n_heads=8,
                  checkpoint_encoder=False,
                  shrink_size=None,
-                 attention_type = "full",
-                 attention_neighborhood = None,
-                 logger = None):
+                 attention_type = "full"):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -78,14 +77,12 @@ class AttentionModel(nn.Module):
         self.checkpoint_encoder = checkpoint_encoder
         self.shrink_size = shrink_size
 
-        self.logger = logger
-
-        # self.attention_type = attention_type
-        self.attention_neighborhood = attention_neighborhood
+        self.attention_type = attention_type
         self.attention_type_function = {
             'full': torch.softmax,
             'sparse': entmax15
         }.get(attention_type, "full")
+        self.sparse_loss= Entmax15Loss()
 
         # Problem specific context parameters (placeholder and step context dimension)
         if self.is_vrp or self.is_orienteering or self.is_pctsp:
@@ -117,7 +114,8 @@ class AttentionModel(nn.Module):
             n_heads=n_heads,
             embed_dim=embedding_dim,
             n_layers=self.n_encode_layers,
-            normalization=normalization
+            normalization=normalization,
+            attention_type = attention_type
         )
 
         # For each node we compute (glimpse key, glimpse value, logit key) so 3 * embedding_dim
@@ -151,7 +149,9 @@ class AttentionModel(nn.Module):
         cost, mask = self.problem.get_costs(input, pi)
         # Log likelyhood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
+
         ll = self._calc_log_likelihood(_log_p, pi, mask)
+        #ll = self._calc_sparse_omega(_log_p, pi, mask)
         if return_pi:
             return cost, ll, pi
 
@@ -210,6 +210,24 @@ class AttentionModel(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
+
+    def _calc_sparse_omega(self, _log_p, a, mask):
+        # Get log_p corresponding to selected actions
+        #log_p = _log_p.gather(2, a.unsqueeze(-1)).squeeze(-1)
+        log_p = _log_p
+        # Optional: mask out actions irrelevant to objective so they do not get reinforced
+        if mask is not None:
+            log_p[mask] = 0
+
+        assert (log_p > -1000).data.all(), "Logprobs should not be -inf, check sampling procedure!"
+        p_star = torch.sqrt(log_p)      
+        deriv = (1 - (log_p * torch.sqrt(log_p)).sum(dim=1)) / 0.75
+        #p_star = p_star.sum(1)
+        #deriv = torch.diag_embed(p_star).sum(1) - (1/p_star.sum(0)) * torch.dot(p_star, p_star.t())
+        #deriv = p_star - (1/p_star.sum(1)) * torch.matmul(p_star, p_star.t())
+        # Calculate log_likelihood
+        return deriv.sum(1)
+
     def _init_embed(self, input):
 
         if self.is_vrp or self.is_orienteering or self.is_pctsp:
@@ -241,7 +259,6 @@ class AttentionModel(nn.Module):
         state = self.problem.make_state(input)
 
         # Compute keys, values for the glimpse and keys for the logits once as they can be reused in every step
-        # TODO
         fixed = self._precompute(embeddings)
 
         batch_size = state.ids.size(0)
@@ -265,7 +282,13 @@ class AttentionModel(nn.Module):
             log_p, mask = self._get_log_p(fixed, state)
 
             # Select the indices of the next nodes in the sequences, result (batch_size) long
-            selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+            #changed
+            if self.attention_type =="full":
+                selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+            else:
+                selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+
+            #selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
 
             state = state.update(selected)
 
@@ -362,18 +385,26 @@ class AttentionModel(nn.Module):
                 self.project_step_context(self._get_parallel_step_context(fixed.node_embeddings, state))
 
         # Compute keys and values for the nodes
-        # TODO limit these for limited attention
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed, state)
 
         # Compute the mask
-        # TODO or add to mask
-        mask = state.get_mask(neighborhood_size = self.attention_neighborhood)
+        mask = state.get_mask()
 
         # Compute logits (unnormalized log_p)
         log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask)
 
-        if normalize:
+        if self.attention_type == "sparse":
+            #log_p = entmax15(log_p / self.temp, dim=-1)
+            #log_p = torch.log(log_p)
+            #log_p [log_p != log_p] = -math.inf
+            #check nans
             log_p = torch.log_softmax(log_p / self.temp, dim=-1)
+        else:
+             if normalize:
+                log_p = torch.log_softmax(log_p / self.temp, dim=-1)
+
+        # if normalize and self.attention_type == "full":
+        #     log_p = torch.log_softmax(log_p / self.temp, dim=-1)
 
 
         assert not torch.isnan(log_p).any()
@@ -476,25 +507,14 @@ class AttentionModel(nn.Module):
         compatibility = torch.matmul(glimpse_Q, glimpse_K.transpose(-2, -1)) / math.sqrt(glimpse_Q.size(-1))
         if self.mask_inner:
             assert self.mask_logits, "Cannot mask inner without masking logits"
-            # compatibility.masked_fill_(mask[None, :, :, None, :].expand_as(compatibility), -math.inf)
             compatibility[mask[None, :, :, None, :].expand_as(compatibility)] = -math.inf
 
         # Batch matrix multiplication to compute heads (n_heads, batch_size, num_steps, val_size)
-        # softmax and attention
-
-        # see what type of attention it is and apply it corrospondingly
+        #changed
+        #heads = torch.matmul(torch.softmax(compatibility, dim=-1), glimpse_V)
         heads = torch.matmul(self.attention_type_function(compatibility, dim=-1), glimpse_V)
 
-        # if self.attention_type == "full":
-        #     heads = torch.matmul(torch.softmax(compatibility, dim=-1), glimpse_V)
-
-        # if self.attention_type == "sparse":
-        #     heads = torch.matmul(entmax15(compatibility, dim=-1), glimpse_V)
-
-
-
         # Project to get glimpse/updated context node embedding (batch_size, num_steps, embedding_dim)
-        # make it the correct form for linear because multihead
         glimpse = self.project_out(
             heads.permute(1, 2, 3, 0, 4).contiguous().view(-1, num_steps, 1, self.n_heads * val_size))
 
@@ -503,15 +523,13 @@ class AttentionModel(nn.Module):
         final_Q = glimpse
         # Batch matrix multiplication to compute logits (batch_size, num_steps, graph_size)
         # logits = 'compatibility'
-        # this is the final score to be used i guess
         logits = torch.matmul(final_Q, logit_K.transpose(-2, -1)).squeeze(-2) / math.sqrt(final_Q.size(-1))
 
         # From the logits compute the probabilities by clipping, masking and softmax
         if self.tanh_clipping > 0:
             logits = torch.tanh(logits) * self.tanh_clipping
         if self.mask_logits:
-            # logits[mask] = -math.inf
-            logits.masked_fill_(mask, -math.inf)
+            logits[mask] = -math.inf
 
         return logits, glimpse.squeeze(-2)
 

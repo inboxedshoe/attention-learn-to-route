@@ -66,13 +66,11 @@ def run(opts):
         tanh_clipping=opts.tanh_clipping,
         checkpoint_encoder=opts.checkpoint_encoder,
         shrink_size=opts.shrink_size,
-        logger = tb_logger,
-        attention_type = opts.attention_type,
-        attention_neighborhood=opts.attention_neighborhood
+        attention_type = opts.attention_type
     ).to(opts.device)
 
-    if opts.use_cuda and torch.cuda.device_count() > 1:
-        model = torch.nn.DataParallel(model)
+    # if opts.use_cuda and torch.cuda.device_count() > 1:
+    #     model = torch.nn.DataParallel(model)
 
     # Overwrite model parameters by parameters to load
     model_ = get_inner_model(model)
