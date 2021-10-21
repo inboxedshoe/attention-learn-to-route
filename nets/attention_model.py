@@ -55,7 +55,8 @@ class AttentionModel(nn.Module):
                  checkpoint_encoder=False,
                  shrink_size=None,
                  attention_type = "full",
-                 attention_neighborhood = 0):
+                 attention_neighborhood = 0,
+                 encode_freq = 0):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -86,6 +87,7 @@ class AttentionModel(nn.Module):
         self.sparse_loss= Entmax15Loss()
 
         self.attention_neighbourhood = attention_neighborhood
+        self.encode_freq = encode_freq
 
         # Problem specific context parameters (placeholder and step context dimension)
         if self.is_vrp or self.is_orienteering or self.is_pctsp:
@@ -313,13 +315,13 @@ class AttentionModel(nn.Module):
             # print (mask.shape)
             # print (mask[0])
             # print (mask[0] == False)
-            # if i % 10 == 0:
-            #     if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
-            #         embeddings, _ = checkpoint(self.embedder, self._init_embed(input), mask == False)
-            #     else:
-            #         embeddings, _ = self.embedder(self._init_embed(input), mask == False)
+            if self.encode_freq != 0 and  i % self.encode_freq == 0:
+                if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+                    embeddings, _ = checkpoint(self.embedder, self._init_embed(input), mask == False)
+                else:
+                    embeddings, _ = self.embedder(self._init_embed(input), mask == False)
 
-            #     fixed = self._precompute(embeddings)
+                fixed = self._precompute(embeddings)
                 #print("re_embed")
 
 

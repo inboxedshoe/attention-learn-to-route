@@ -67,7 +67,8 @@ def run(opts):
         checkpoint_encoder=opts.checkpoint_encoder,
         shrink_size=opts.shrink_size,
         attention_type = opts.attention_type,
-        attention_neighborhood = opts.attention_neighborhood
+        attention_neighborhood = opts.attention_neighborhood,
+        encode_freq = opts.encode_freq
     ).to(opts.device)
 
     # if opts.use_cuda and torch.cuda.device_count() > 1:

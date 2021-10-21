@@ -116,7 +116,8 @@ def load_model(path, epoch=None):
         checkpoint_encoder=args.get('checkpoint_encoder', False),
         shrink_size=args.get('shrink_size', None),
         attention_type = args["attention_type"],
-        attention_neighborhood = args["attention_neighborhood"]
+        attention_neighborhood = args["attention_neighborhood"],
+        encode_freq = args["encode_freq"]
     )
     # Overwrite model parameters by parameters to load
     load_data = torch_load_cpu(model_filename)
