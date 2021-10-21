@@ -11,21 +11,25 @@ def generate_tsp_data(dataset_size, tsp_size):
     return np.random.uniform(size=(dataset_size, tsp_size, 2)).tolist()
 
 
-def generate_vrp_data(dataset_size, vrp_size):
+def generate_vrp_data(dataset_size, vrp_size, distro):
     CAPACITIES = {
         10: 20.,
         20: 30.,
         50: 40.,
         100: 50.
     }
-    mean = np.random.uniform(1)
-    std = np.random.uniform(0.3,0.7,1)
-
-    distro = get_truncated_normal(mean=mean, sd=std, low=0, upp=1)
-
+    if distro == "normal":
+        mean = np.random.uniform(1)
+        std = np.random.uniform(0.3,0.7,1)
+        distro = get_truncated_normal(mean=mean, sd=std, low=0, upp=1)
+        nodes = distro.rvs((dataset_size, vrp_size, 2)).tolist()
+        depot = distro.rvs((dataset_size, 2)).tolist()
+    else:
+        nodes = np.random.uniform(0,1,(dataset_size, vrp_size, 2)).tolist()
+        depot = np.random.uniform(0,1,(dataset_size, 2)).tolist()
     return list(zip(
-        distro.rvs((dataset_size, 2)).tolist(),  # Depot location
-        distro.rvs((dataset_size, vrp_size, 2)).tolist(),  # Node locations
+        depot,  # Depot location
+        nodes,  # Node locations
         np.random.randint(1, 10, size=(dataset_size, vrp_size)).tolist(),  # Demand, uniform integer 1 ... 9
         np.full(dataset_size, CAPACITIES[vrp_size]).tolist()  # Capacity, same for whole dataset
     ))
@@ -109,7 +113,7 @@ if __name__ == "__main__":
     parser.add_argument("--problem", type=str, default='all',
                         help="Problem, 'tsp', 'vrp', 'pctsp' or 'op_const', 'op_unif' or 'op_dist'"
                              " or 'all' to generate all")
-    parser.add_argument('--data_distribution', type=str, default='all',
+    parser.add_argument('--data_distribution', type=str, default='uniform',
                         help="Distributions to generate for problem, default 'all'.")
 
     parser.add_argument("--dataset_size", type=int, default=10000, help="Size of the dataset")
@@ -125,7 +129,7 @@ if __name__ == "__main__":
 
     distributions_per_problem = {
         'tsp': [None],
-        'vrp': [None],
+        'vrp': ["normal", "uniform"],
         'pctsp': [None],
         'op': ['const', 'unif', 'dist']
     }
@@ -162,7 +166,7 @@ if __name__ == "__main__":
                     dataset = generate_tsp_data(opts.dataset_size, graph_size)
                 elif problem == 'vrp':
                     dataset = generate_vrp_data(
-                        opts.dataset_size, graph_size)
+                        opts.dataset_size, graph_size, distro = distribution)
                 elif problem == 'pctsp':
                     dataset = generate_pctsp_data(opts.dataset_size, graph_size)
                 elif problem == "op":

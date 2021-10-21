@@ -57,7 +57,7 @@ def get_options(args=None):
     parser.add_argument('--shrink_size', type=int, default=None,
                         help='Shrink the batch size if at least this many instances in the batch are finished'
                              ' to save memory (default None means no shrinking)')
-    parser.add_argument('--data_distribution', type=str, default=None,
+    parser.add_argument('--data_distribution', type=str, default="uniform",
                         help='Data distribution to use during training, defaults and options depend on problem.')
 
     # Misc
