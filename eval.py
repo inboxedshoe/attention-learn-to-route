@@ -12,7 +12,13 @@ import time
 from datetime import timedelta
 from utils.functions import parse_softmax_temperature
 mp = torch.multiprocessing.get_context('spawn')
+import pickle
 
+def save_obj(obj, name ):
+    if not os.path.exists('graph_res'):
+        os.makedirs('graph_res')
+    with open('graph_res/'+ name + '.pkl', 'wb+') as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
 
 def get_best(sequences, cost, ids=None, batch_size=None):
     """
@@ -98,7 +104,7 @@ def eval_dataset(dataset_path, width, softmax_temp, opts):
     assert opts.f or not os.path.isfile(
         out_file), "File already exists! Try running with -f option to overwrite."
 
-    save_dataset((results, parallelism), out_file)
+    save_dataset((results, parallelism) , out_file)
 
     return costs, tours, durations
 
@@ -137,7 +143,13 @@ def _eval_dataset(model, dataset, width, softmax_temp, opts, device):
                     iter_rep = 1
                 assert batch_rep > 0
                 # This returns (batch_size, iter_rep shape)
-                sequences, costs = model.sample_many(batch, batch_rep=batch_rep, iter_rep=iter_rep)
+                sequences, costs, log_p = model.sample_many(batch, batch_rep=batch_rep, iter_rep=iter_rep)
+
+                #save the data for use with plotly
+                if opts.save_plotly == True:
+                    save_obj([batch, log_p, sequences], "cvrp50-sparse")
+                
+                
                 batch_size = len(costs)
                 ids = torch.arange(batch_size, dtype=torch.int64, device=costs.device)
             else:
@@ -182,6 +194,8 @@ if __name__ == "__main__":
     parser.add_argument("-o", default=None, help="Name of the results file to write")
     parser.add_argument('--val_size', type=int, default=10000,
                         help='Number of instances used for reporting validation performance')
+    parser.add_argument('--save_plotly', type=bool, default=True,
+                        help='Whether to save the attention data for graph visualization in dash')
     parser.add_argument('--offset', type=int, default=0,
                         help='Offset where to start in dataset (default 0)')
     parser.add_argument('--eval_batch_size', type=int, default=1024,
@@ -195,7 +209,7 @@ if __name__ == "__main__":
                         help='Beam search (bs), Sampling (sample) or Greedy (greedy)')
     parser.add_argument('--softmax_temperature', type=parse_softmax_temperature, default=1,
                         help="Softmax temperature (sampling or bs)")
-    parser.add_argument('--model', type=str)
+    parser.add_argument('--model', type=str, default="pretrained/cvrp_20/epoch-99.pt")
     parser.add_argument('--no_cuda', action='store_true', help='Disable CUDA')
     parser.add_argument('--no_progress_bar', action='store_true', help='Disable progress bar')
     parser.add_argument('--compress_mask', action='store_true', help='Compress mask into long')

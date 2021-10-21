@@ -10,8 +10,8 @@ class SkipConnection(nn.Module):
         super(SkipConnection, self).__init__()
         self.module = module
 
-    def forward(self, input):
-        return input + self.module(input)
+    def forward(self, input, mask=None):
+        return input + self.module(input, mask)
 
 
 class MultiHeadAttention(nn.Module):
@@ -152,7 +152,7 @@ class Normalization(nn.Module):
             stdv = 1. / math.sqrt(param.size(-1))
             param.data.uniform_(-stdv, stdv)
 
-    def forward(self, input):
+    def forward(self, input, mask=None):
 
         if isinstance(self.normalizer, nn.BatchNorm1d):
             return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
@@ -161,6 +161,25 @@ class Normalization(nn.Module):
         else:
             assert self.normalizer is None, "Unknown normalizer type"
             return input
+
+
+class intermediates(nn.Module):
+    def __init__(
+            self,
+            embed_dim,
+            feed_forward_hidden=512
+    ):
+        super(intermediates, self).__init__()
+
+        # To map input to embedding space
+        self.layers =nn.Sequential(
+                    nn.Linear(embed_dim, feed_forward_hidden),
+                    nn.ReLU(),
+                    nn.Linear(feed_forward_hidden, embed_dim)
+                ) if feed_forward_hidden > 0 else nn.Linear(embed_dim, embed_dim)
+    def forward(self, x, mask=None):
+        return self.layers(x)
+        
 
 
 class MultiHeadAttentionLayer(nn.Sequential):
@@ -184,11 +203,12 @@ class MultiHeadAttentionLayer(nn.Sequential):
             ),
             Normalization(embed_dim, normalization),
             SkipConnection(
-                nn.Sequential(
-                    nn.Linear(embed_dim, feed_forward_hidden),
-                    nn.ReLU(),
-                    nn.Linear(feed_forward_hidden, embed_dim)
-                ) if feed_forward_hidden > 0 else nn.Linear(embed_dim, embed_dim)
+                intermediates(embed_dim, feed_forward_hidden)
+                # nn.Sequential(
+                #     nn.Linear(embed_dim, feed_forward_hidden),
+                #     nn.ReLU(),
+                #     nn.Linear(feed_forward_hidden, embed_dim)
+                # ) if feed_forward_hidden > 0 else nn.Linear(embed_dim, embed_dim)
             ),
             Normalization(embed_dim, normalization)
         )
@@ -217,7 +237,7 @@ class GraphAttentionEncoder(nn.Module):
 
     def forward(self, x, mask=None):
 
-        assert mask is None, "TODO mask not yet supported!"
+        #assert mask is None, "TODO mask not yet supported!"
 
         # Batch multiply to get initial embeddings of nodes
         h = self.init_embed(x.view(-1, x.size(-1))).view(*x.size()[:2], -1) if self.init_embed is not None else x

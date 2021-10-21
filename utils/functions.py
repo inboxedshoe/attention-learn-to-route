@@ -114,7 +114,9 @@ def load_model(path, epoch=None):
         normalization=args['normalization'],
         tanh_clipping=args['tanh_clipping'],
         checkpoint_encoder=args.get('checkpoint_encoder', False),
-        shrink_size=args.get('shrink_size', None)
+        shrink_size=args.get('shrink_size', None),
+        attention_type = args["attention_type"],
+        attention_neighborhood = args["attention_neighborhood"]
     )
     # Overwrite model parameters by parameters to load
     load_data = torch_load_cpu(model_filename)
@@ -206,4 +208,4 @@ def sample_many(inner_func, get_cost_func, input, batch_rep=1, iter_rep=1):
     # (batch_size, minlength)
     minpis = pis[torch.arange(pis.size(0), out=argmincosts.new()), argmincosts]
 
-    return minpis, mincosts
+    return minpis, mincosts, _log_p

@@ -1,7 +1,7 @@
 import torch
 from typing import NamedTuple
 from utils.boolmask import mask_long2bool, mask_long_scatter
-
+import math
 
 class StateCVRP(NamedTuple):
     # Fixed input
@@ -129,7 +129,7 @@ class StateCVRP(NamedTuple):
     def get_current_node(self):
         return self.prev_a
 
-    def get_mask(self):
+    def get_mask(self, attention_neighborhood = 0):
         """
         Gets a (batch_size, n_loc + 1) mask with the feasible actions (0 = depot), depends on already visited and
         remaining capacity. 0 = feasible, 1 = infeasible
@@ -146,6 +146,32 @@ class StateCVRP(NamedTuple):
         exceeds_cap = (self.demand[self.ids, :] + self.used_capacity[:, :, None] > self.VEHICLE_CAPACITY)
         # Nodes that cannot be visited are already visited or too much demand to be served now
         mask_loc = visited_loc.to(exceeds_cap.dtype) | exceeds_cap
+
+        #mask out any nodes not in k-nearest
+        if attention_neighborhood !=0 :
+            # neighbors = torch.topk(self.dist, 10, largest = False).indices 
+            #select the distance vector for the node we are at now
+            current_dis_vector = torch.index_select(self.dist,1,self.prev_a.reshape(-1))[:,0,:].unsqueeze(1)
+            #we only want the current accessible top k nodes so offset any nodes previously masked
+            #current_dis_vector.masked_fill_(mask_loc, float("1"))
+            current_dis_vector[:,:,1:][mask_loc] = +math.inf
+
+            #get the k nearest neighbors and then the cutoff point for every node's neighbors
+            #neighbors_cutoff = torch.topk(self.dist, neighborhood_size, largest = False)[0][:,:,-1:]
+            #neighbors_cutoff = torch.gather(neighbors_cutoff.reshape(mask_loc.shape[0],-1),-2,self.prev_a)
+            neighbors_cutoff = torch.topk(current_dis_vector, attention_neighborhood, largest = False)[0][:,:,-1:].reshape(mask_loc.shape[0],-1)
+
+            #set all distances greater than cutoff to true
+            is_not_neighbor = current_dis_vector.squeeze() > neighbors_cutoff
+            is_not_neighbor.unsqueeze_(1)
+
+            #add the non-neighbors to the mask
+            mask_loc = mask_loc | is_not_neighbor[:,:,1:]
+
+            # is_not_neighbor = torch.ones(mask_loc.shape).to(exceeds_cap.dtype)
+            # is_not_neighbor = is_not_neighbor.index_fill_(-1,neighbors,False)     
+
+
 
         # Cannot visit the depot if just visited and still unserved nodes
         mask_depot = (self.prev_a == 0) & ((mask_loc == 0).int().sum(-1) > 0)

@@ -10,9 +10,9 @@ def get_options(args=None):
 
     # Data
     parser.add_argument('--problem', default='cvrp', help="The problem to solve, default 'cvrp'")
-    parser.add_argument('--attention_type', default='sparse', help="Type of attention, full/sparse")
-    parser.add_argument('--attention_neighborhood', type=int, default=None, help="Closest N neighbors to consider for attention, default = None")
-    parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
+    parser.add_argument('--attention_type', default='full', help="Type of attention, full/sparse")
+    parser.add_argument('--attention_neighborhood', type=int, default=30, help="Closest N neighbors to consider for attention, default = 0")
+    parser.add_argument('--graph_size', type=int, default=50, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=512, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=1280000, help='Number of instances per epoch during training')
     parser.add_argument('--val_size', type=int, default=10000,
@@ -35,14 +35,14 @@ def get_options(args=None):
     parser.add_argument('--lr_critic', type=float, default=1e-4, help="Set the learning rate for the critic network")
     parser.add_argument('--lr_decay', type=float, default=1.0, help='Learning rate decay per epoch')
     parser.add_argument('--eval_only', action='store_true', help='Set this value to only evaluate model')
-    parser.add_argument('--n_epochs', type=int, default=100, help='The number of epochs to train')
+    parser.add_argument('--n_epochs', type=int, default=101, help='The number of epochs to train')
     parser.add_argument('--seed', type=int, default=1234, help='Random seed to use')
     parser.add_argument('--max_grad_norm', type=float, default=1.0,
                         help='Maximum L2 norm for gradient clipping, default 1.0 (0 to disable clipping)')
     parser.add_argument('--no_cuda', action='store_true', help='Disable CUDA')
     parser.add_argument('--exp_beta', type=float, default=0.8,
                         help='Exponential moving average baseline decay (default 0.8)')
-    parser.add_argument('--baseline', default=None,
+    parser.add_argument('--baseline', default='rollout',
                         help="Baseline to use: 'rollout', 'critic' or 'exponential'. Defaults to no baseline.")
     parser.add_argument('--bl_alpha', type=float, default=0.05,
                         help='Significance in the t-test for updating rollout baseline')
@@ -51,7 +51,7 @@ def get_options(args=None):
                              'used for warmup phase), 0 otherwise. Can only be used with rollout baseline.')
     parser.add_argument('--eval_batch_size', type=int, default=1024,
                         help="Batch size to use during (baseline) evaluation")
-    parser.add_argument('--checkpoint_encoder', action='store_true',
+    parser.add_argument('--checkpoint_encoder', action='store_false',
                         help='Set to decrease memory usage by checkpointing encoder')
     parser.add_argument('--shrink_size', type=int, default=None,
                         help='Shrink the batch size if at least this many instances in the batch are finished'
@@ -69,7 +69,7 @@ def get_options(args=None):
     parser.add_argument('--checkpoint_epochs', type=int, default=1,
                         help='Save checkpoint every n epochs (default 1), 0 to save no checkpoints')
     parser.add_argument('--load_path', help='Path to load model parameters and optimizer state from')
-    parser.add_argument('--resume', help='Resume from previous checkpoint file')
+    parser.add_argument('--resume', help='Resume from previous checkpoint file', default=None)
     parser.add_argument('--no_tensorboard', action='store_true', help='Disable logging TensorBoard files')
     parser.add_argument('--no_progress_bar', action='store_true', help='Disable progress bar')
 

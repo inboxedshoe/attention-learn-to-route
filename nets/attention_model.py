@@ -54,7 +54,8 @@ class AttentionModel(nn.Module):
                  n_heads=8,
                  checkpoint_encoder=False,
                  shrink_size=None,
-                 attention_type = "full"):
+                 attention_type = "full",
+                 attention_neighborhood = 0):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -83,6 +84,8 @@ class AttentionModel(nn.Module):
             'sparse': entmax15
         }.get(attention_type, "full")
         self.sparse_loss= Entmax15Loss()
+
+        self.attention_neighbourhood = attention_neighborhood
 
         # Problem specific context parameters (placeholder and step context dimension)
         if self.is_vrp or self.is_orienteering or self.is_pctsp:
@@ -289,7 +292,7 @@ class AttentionModel(nn.Module):
                 selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
 
             #selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
-
+            
             state = state.update(selected)
 
             # Now make log_p, selected desired output size by 'unshrinking'
@@ -306,6 +309,19 @@ class AttentionModel(nn.Module):
             sequences.append(selected)
 
             i += 1
+
+            # print (mask.shape)
+            # print (mask[0])
+            # print (mask[0] == False)
+            if i % 10 == 0:
+                if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+                    embeddings, _ = checkpoint(self.embedder, self._init_embed(input), mask == False)
+                else:
+                    embeddings, _ = self.embedder(self._init_embed(input), mask == False)
+
+                fixed = self._precompute(embeddings)
+                #print("re_embed")
+
 
         # Collected lists, return Tensor
         return torch.stack(outputs, 1), torch.stack(sequences, 1)
@@ -388,7 +404,7 @@ class AttentionModel(nn.Module):
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed, state)
 
         # Compute the mask
-        mask = state.get_mask()
+        mask = state.get_mask(self.attention_neighbourhood)
 
         # Compute logits (unnormalized log_p)
         log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask)
