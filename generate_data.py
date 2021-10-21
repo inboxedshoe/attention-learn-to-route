@@ -2,7 +2,10 @@ import argparse
 import os
 import numpy as np
 from utils.data_utils import check_extension, save_dataset
+from scipy.stats import truncnorm
 
+def get_truncated_normal(mean=0, sd=1, low=0, upp=10):
+    return truncnorm((low - mean) / sd, (upp - mean) / sd, loc=mean, scale=sd)
 
 def generate_tsp_data(dataset_size, tsp_size):
     return np.random.uniform(size=(dataset_size, tsp_size, 2)).tolist()
@@ -15,9 +18,14 @@ def generate_vrp_data(dataset_size, vrp_size):
         50: 40.,
         100: 50.
     }
+    mean = np.random.uniform(1)
+    std = np.random.uniform(0.3,0.7,1)
+
+    distro = get_truncated_normal(mean=mean, sd=std, low=0, upp=1)
+
     return list(zip(
-        np.random.uniform(size=(dataset_size, 2)).tolist(),  # Depot location
-        np.random.uniform(size=(dataset_size, vrp_size, 2)).tolist(),  # Node locations
+        distro.rvs((dataset_size, 2)).tolist(),  # Depot location
+        distro.rvs((dataset_size, vrp_size, 2)).tolist(),  # Node locations
         np.random.randint(1, 10, size=(dataset_size, vrp_size)).tolist(),  # Demand, uniform integer 1 ... 9
         np.full(dataset_size, CAPACITIES[vrp_size]).tolist()  # Capacity, same for whole dataset
     ))

@@ -313,13 +313,13 @@ class AttentionModel(nn.Module):
             # print (mask.shape)
             # print (mask[0])
             # print (mask[0] == False)
-            if i % 10 == 0:
-                if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
-                    embeddings, _ = checkpoint(self.embedder, self._init_embed(input), mask == False)
-                else:
-                    embeddings, _ = self.embedder(self._init_embed(input), mask == False)
+            # if i % 10 == 0:
+            #     if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+            #         embeddings, _ = checkpoint(self.embedder, self._init_embed(input), mask == False)
+            #     else:
+            #         embeddings, _ = self.embedder(self._init_embed(input), mask == False)
 
-                fixed = self._precompute(embeddings)
+            #     fixed = self._precompute(embeddings)
                 #print("re_embed")
 
 
