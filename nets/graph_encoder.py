@@ -103,8 +103,8 @@ class MultiHeadAttention(nn.Module):
             compatibility[mask] = -np.inf
 
         #changed
-        #attn = torch.softmax(compatibility, dim=-1)
-        attn = self.attention_type_function(compatibility, dim = -1)
+        attn = torch.softmax(compatibility, dim=-1)
+        #attn = self.attention_type_function(compatibility, dim = -1)
 
         # If there are nodes with no neighbours then softmax returns nan so we fix them to 0
         if mask is not None:
