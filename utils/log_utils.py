@@ -1,3 +1,6 @@
+import torch
+import os
+
 def log_values(cost, grad_norms, epoch, batch_id, step,
                log_likelihood, reinforce_loss, bl_loss, tb_logger, opts):
     avg_cost = cost.mean().item()
@@ -22,3 +25,7 @@ def log_values(cost, grad_norms, epoch, batch_id, step,
             tb_logger.log_value('critic_loss', bl_loss.item(), step)
             tb_logger.log_value('critic_grad_norm', grad_norms[1], step)
             tb_logger.log_value('critic_grad_norm_clipped', grad_norms_clipped[1], step)
+
+
+def log_encoder (l, opts, epoch):
+    torch.save({"embeddings": l[0], "embedding_weights": l[1]}, os.path.join(opts.save_dir, 'epoch-{}-encoder-outputs.pkl'.format(epoch)))

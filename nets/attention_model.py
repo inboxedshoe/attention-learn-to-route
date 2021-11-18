@@ -157,11 +157,10 @@ class AttentionModel(nn.Module):
         :return:
         """
         # call the encoder the first time
-
         if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
-            embeddings, _ = checkpoint(self.embedder, self._init_embed(input))
+            embeddings, encoded_compat = checkpoint(self.embedder, self._init_embed(input))
         else:
-            embeddings, _ = self.embedder(self._init_embed(input))
+            embeddings, encoded_compat = self.embedder(self._init_embed(input))
 
         _log_p, pi = self._inner(input, embeddings)
 
@@ -169,12 +168,14 @@ class AttentionModel(nn.Module):
         # Log likelihood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
 
+        encoder_outputs = [embeddings, encoded_compat]
+
         ll = self._calc_log_likelihood(_log_p, pi, mask)
         # ll = self._calc_sparse_omega(_log_p, pi, mask)
         if return_pi:
             return cost, ll, pi
 
-        return cost, ll
+        return cost, ll, encoder_outputs
 
     def beam_search(self, *args, **kwargs):
         return self.problem.beam_search(*args, **kwargs, model=self)

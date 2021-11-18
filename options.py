@@ -12,12 +12,14 @@ def get_options(args=None):
     parser.add_argument('--problem', default='cvrp', help="The problem to solve, default 'cvrp'")
     parser.add_argument('--attention_type', default='softmax', help="Type of attention, full/sparse")
     parser.add_argument('--attention_neighborhood', type=int, default=0, help="Closest N neighbors to consider for attention, default = 0")
-    parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
+    # SIZE
+    parser.add_argument('--graph_size', type=int, default=50, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=512, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=1280000, help='Number of instances per epoch during training')
     parser.add_argument('--val_size', type=int, default=10000,
                         help='Number of instances used for reporting validation performance')
-    parser.add_argument('--val_dataset', type=str, default=None, help='Dataset file to use for validation')
+    #SIZE
+    parser.add_argument('--val_dataset', type=str, default="data/CVRP/vrp50_validation_seed4321.pkl", help='Dataset file to use for validation')
 
     # Model
     parser.add_argument('--model', default='attention', help="Model, 'attention' (default) or 'pointer'")
@@ -63,7 +65,8 @@ def get_options(args=None):
     # Misc
     parser.add_argument('--log_step', type=int, default=50, help='Log info every log_step steps')
     parser.add_argument('--log_dir', default='logs', help='Directory to write TensorBoard information to')
-    parser.add_argument('--run_name', default='run', help='Name to identify the run')
+    #NAME
+    parser.add_argument('--run_name', default='run_50_encoder_record', help='Name to identify the run')
     parser.add_argument('--output_dir', default='outputs', help='Directory to write output models to')
     parser.add_argument('--epoch_start', type=int, default=0,
                         help='Start at epoch # (relevant for learning rate decay)')

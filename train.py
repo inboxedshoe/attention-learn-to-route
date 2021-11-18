@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from torch.nn import DataParallel
 
 from nets.attention_model import set_decode_type
-from utils.log_utils import log_values
+from utils.log_utils import log_values, log_encoder
 from utils import move_to
 
 
@@ -16,32 +16,55 @@ def get_inner_model(model):
     return model.module if isinstance(model, DataParallel) else model
 
 
-def validate(model, dataset, opts):
+def validate(model, dataset, opts, return_extra=False):
     # Validate
     print('Validating...')
-    cost = rollout(model, dataset, opts)
-    avg_cost = cost.mean()
-    print('Validation overall avg_cost: {} +- {}'.format(
-        avg_cost, torch.std(cost) / math.sqrt(len(cost))))
+    if return_extra:
+        cost, encoder_outputs = rollout(model, dataset, opts, return_extra=True)
+        avg_cost = cost.mean()
+        print('Validation overall avg_cost: {} +- {}'.format(
+            avg_cost, torch.std(cost) / math.sqrt(len(cost))))
 
-    return avg_cost
+        return avg_cost, encoder_outputs
+
+    #repeating code to avoid hacving to check twice
+    else:
+        cost = rollout(model, dataset, opts)
+        avg_cost = cost.mean()
+        print('Validation overall avg_cost: {} +- {}'.format(
+            avg_cost, torch.std(cost) / math.sqrt(len(cost))))
+
+        return avg_cost
 
 
-def rollout(model, dataset, opts):
+
+
+def rollout(model, dataset, opts, return_extra=False):
     # Put in greedy evaluation mode!
     set_decode_type(model, "greedy")
     model.eval()
 
     def eval_model_bat(bat):
         with torch.no_grad():
-            cost, _ = model(move_to(bat, opts.device))
-        return cost.data.cpu()
+            #change output
+            if return_extra:
+                cost, _, encoder_outputs = model(move_to(bat, opts.device))
+                return cost.data.cpu(), encoder_outputs
+            else:
+                cost, _, _ = model(move_to(bat, opts.device))
+                return cost.data.cpu()
 
-    return torch.cat([
-        eval_model_bat(bat)
-        for bat
-        in tqdm(DataLoader(dataset, batch_size=opts.eval_batch_size), disable=opts.no_progress_bar)
-    ], 0)
+    if return_extra:
+        costs = []
+        encoder_outputs = []
+
+        for bat in tqdm(DataLoader(dataset, batch_size=opts.eval_batch_size), disable=opts.no_progress_bar):
+            cost, out = eval_model_bat(bat)
+            costs.append(cost)
+            encoder_outputs.append(out)
+        return torch.cat(costs, 0), encoder_outputs
+    else:
+        return torch.cat([eval_model_bat(bat) for bat in tqdm(DataLoader(dataset, batch_size=opts.eval_batch_size), disable=opts.no_progress_bar)], 0)
 
 
 def clip_grad_norms(param_groups, max_norm=math.inf):
@@ -100,6 +123,9 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
     epoch_duration = time.time() - start_time
     print("Finished epoch {}, took {} s".format(epoch, time.strftime('%H:%M:%S', time.gmtime(epoch_duration))))
 
+    # get encoder outputs as well
+    avg_reward, encoder_outputs = validate(model, val_dataset, opts, return_extra=True)
+
     if (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0) or epoch == opts.n_epochs - 1:
         print('Saving model and state...')
         torch.save(
@@ -112,8 +138,9 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
             },
             os.path.join(opts.save_dir, 'epoch-{}.pt'.format(epoch))
         )
+        print("Saving encoder outputs...")
+        log_encoder(encoder_outputs, opts, epoch)
 
-    avg_reward = validate(model, val_dataset, opts)
 
     if not opts.no_tensorboard:
         tb_logger.log_value('val_avg_reward', avg_reward, step)
@@ -140,7 +167,7 @@ def train_batch(
     bl_val = move_to(bl_val, opts.device) if bl_val is not None else None
 
     # Evaluate model, get costs and log probabilities
-    cost, log_likelihood = model(x)
+    cost, log_likelihood, _ = model(x)
 
     # Evaluate baseline, get baseline loss if any (only for critic)
     bl_val, bl_loss = baseline.eval(x, cost) if bl_val is None else (bl_val, 0)
@@ -160,3 +187,5 @@ def train_batch(
     if step % int(opts.log_step) == 0:
         log_values(cost, grad_norms, epoch, batch_id, step,
                    log_likelihood, reinforce_loss, bl_loss, tb_logger, opts)
+
+

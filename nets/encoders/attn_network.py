@@ -72,7 +72,7 @@ class AttentionBlock(nn.Module):
 
     def forward(self, x, attn_mask=None, key_padding_mask=None):
         # since this is self_attention encoding, Q,K,V are the same
-        h,weights = self.MHA(query=x,
+        h, weights = self.MHA(query=x,
                      key=x,
                      value=x,
                      need_weights=False,
