@@ -27,7 +27,7 @@ def validate(model, dataset, opts, return_extra=False):
 
         return avg_cost, encoder_outputs
 
-    #repeating code to avoid hacving to check twice
+    #repeating code to avoid having to check twice
     else:
         cost = rollout(model, dataset, opts)
         avg_cost = cost.mean()
@@ -96,9 +96,12 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
         tb_logger.log_value('learnrate_pg0', optimizer.param_groups[0]['lr'], step)
 
     # Generate new training data for each epoch
+    # dense data generation
+    # also in reinforce_baselines.py and run.py
     training_dataset = baseline.wrap_dataset(problem.make_dataset(
-        size=opts.graph_size, num_samples=opts.epoch_size, distribution=opts.data_distribution))
-    training_dataloader = DataLoader(training_dataset, batch_size=opts.batch_size, num_workers=0)
+        size=opts.graph_size, num_samples=opts.epoch_size, dense_mix=True))
+    #we need to shuffle the data incase theres a density mixture
+    training_dataloader = DataLoader(training_dataset, batch_size=opts.batch_size, num_workers=0, shuffle=True)
 
     # Put model in train mode!
     model.train()

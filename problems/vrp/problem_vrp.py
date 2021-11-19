@@ -165,7 +165,7 @@ def make_instance(args):
 
 class VRPDataset(Dataset):
     
-    def __init__(self, filename=None, size=50, num_samples=1000000, offset=0, distribution=None):
+    def __init__(self, filename=None, size=50, num_samples=1000000, offset=0, dense_mix=False):
         super(VRPDataset, self).__init__()
 
         self.data_set = []
@@ -186,20 +186,75 @@ class VRPDataset(Dataset):
                 100: 50.
             }
 
-            self.data = [
-                {
-                    'loc': torch.FloatTensor(size, 2).uniform_(0, 1),
-                    # Uniform 1 - 9, scaled by capacities
-                    'demand': (torch.FloatTensor(size).uniform_(0, 9).int() + 1).float() / CAPACITIES[size],
-                    'depot': torch.FloatTensor(2).uniform_(0, 1)
-                }
-                for i in range(num_samples)
-            ]
+            if dense_mix:
+                #we want a mixture of data densities in the training data
+                self.data = self.generate_default_density(size, num_samples/2, CAPACITIES)
+                self.data += self.generate_dense_data(size, num_samples/2, CAPACITIES, 0.5, 10)
+                print("mixed")
+            else:
+                # uniform over (0,1)
+                self.data = self.generate_default_density(size, num_samples, CAPACITIES)
+
+
 
         self.size = len(self.data)
 
     def __len__(self):
         return self.size
+
+    def generate_default_density(self, size, samples, capacities):
+        data = [
+            {
+                'loc': torch.FloatTensor(size, 2).uniform_(0, 1),
+                # Uniform 1 - 9, scaled by capacities
+                'demand': (torch.FloatTensor(size).uniform_(0, 9).int() + 1).float() / capacities[size],
+                'depot': torch.FloatTensor(2).uniform_(0, 1)
+            }
+            for i in range(int(samples))
+        ]
+        return data
+
+    def generate_dense_data(self, size, samples, capacities, max_interval, num_distros=5, mixed=True):
+
+        #first we need to sample multiple ranges
+        start_points = []
+        for i in range(num_distros):
+            point = torch.FloatTensor(1).uniform_(0, 1-max_interval)
+            # round and append
+            start_points.append(((point * 10 ** 3).round() / (10 ** 3)).item())
+
+
+        if samples%num_distros == 0:
+            mini_batch_size = samples/num_distros
+            #create initialmini batch
+            data = [
+                {
+                    'loc': torch.FloatTensor(size, 2).uniform_(start_points[0], start_points[0]+max_interval),
+                    # Uniform 1 - 9, scaled by capacities
+                    'demand': (torch.FloatTensor(size).uniform_(0, 9).int() + 1).float() / capacities[size],
+                    'depot': torch.FloatTensor(2).uniform_(start_points[0], start_points[0]+max_interval)
+                }
+                for i in range(int(mini_batch_size))
+            ]
+            #loop over remaining minibatches
+            for start_index in range(1, len(start_points)):
+                data_temp = [
+                    {
+                        'loc': torch.FloatTensor(size, 2).uniform_(start_points[start_index], start_points[start_index]+max_interval),
+                        # Uniform 1 - 9, scaled by capacities
+                        'demand': (torch.FloatTensor(size).uniform_(0, 9).int() + 1).float() / capacities[size],
+                        'depot': torch.FloatTensor(2).uniform_(start_points[start_index], start_points[start_index]+max_interval)
+                    }
+                    for i in range(int(mini_batch_size))
+                ]
+                data += data_temp
+
+        else:
+            print("sample size is not divisible by number of distros")
+            assert (0)
+
+        return data
+
 
     def __getitem__(self, idx):
         return self.data[idx]

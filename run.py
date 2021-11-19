@@ -139,8 +139,9 @@ def run(opts):
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: opts.lr_decay ** epoch)
 
     # Start the actual training loop
+    # dense mix
     val_dataset = problem.make_dataset(
-        size=opts.graph_size, num_samples=opts.val_size, filename=opts.val_dataset, distribution=opts.data_distribution)
+        size=opts.graph_size, num_samples=opts.val_size, filename=opts.val_dataset, dense_mix=True)
 
     if opts.resume:
         epoch_resume = int(os.path.splitext(os.path.split(opts.resume)[-1])[0].split("-")[1])
