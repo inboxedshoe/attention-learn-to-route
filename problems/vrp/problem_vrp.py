@@ -214,14 +214,15 @@ class VRPDataset(Dataset):
         ]
         return data
 
-    def generate_dense_data(self, size, samples, capacities, max_interval, num_distros=5, mixed=True):
+    def generate_dense_data(self, size, samples, capacities, max_interval, num_distros=10, mixed=True):
 
         #first we need to sample multiple ranges
         start_points = []
         for i in range(num_distros):
             point = torch.FloatTensor(1).uniform_(0, 1-max_interval)
             # round and append
-            start_points.append(((point * 10 ** 3).round() / (10 ** 3)).item())
+            #start_points.append(torch.round(point, decimals=3).item())
+            start_points.append(point.item())
 
 
         if samples%num_distros == 0:
