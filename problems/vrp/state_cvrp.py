@@ -177,5 +177,24 @@ class StateCVRP(NamedTuple):
         mask_depot = (self.prev_a == 0) & ((mask_loc == 0).int().sum(-1) > 0)
         return torch.cat((mask_depot[:, :, None], mask_loc), -1)
 
+    def get_neighborhood_mask(self, attention_neighborhood=20, static=True, encoder=True, include_state=False):
+        if encoder:
+            #for encoder: 1/True means don't attend
+            #get distance matrix
+            mask = torch.cdist(self.coords, self.coords, p=2)
+            #get location of top k items
+            _, idx = mask.topk(attention_neighborhood)
+            #set all to zero
+            mask.fill_(1)
+            #set mask to keep
+            mask[idx] = 0
+            #depot should always be accessible
+            mask[:,0,:] = 0
+            mask[:,:,0] = 0
+
+            mask = mask == 1
+
+            return mask
+
     def construct_solutions(self, actions):
         return actions

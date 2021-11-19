@@ -156,13 +156,19 @@ class AttentionModel(nn.Module):
         using DataParallel as the results may be of different lengths on different GPUs
         :return:
         """
+
+        state = self.problem.make_state(input)
+
         # call the encoder the first time
         if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
-            embeddings, encoded_compat = checkpoint(self.embedder, self._init_embed(input))
+            embeddings, encoded_compat = checkpoint(self.embedder,
+                                                self._init_embed(input),
+                                                state.get_neighborhood_mask(attention_neighborhood=20).repeat(self.n_heads, 1, 1))
         else:
             embeddings, encoded_compat = self.embedder(self._init_embed(input))
 
-        _log_p, pi = self._inner(input, embeddings)
+        #_log_p, pi = self._inner(input, embeddings)
+        _log_p, pi = self._inner(input, embeddings,state)
 
         cost, mask = self.problem.get_costs(input, pi)
         # Log likelihood is calculated within the model since returning it per action does not work well with
@@ -270,12 +276,10 @@ class AttentionModel(nn.Module):
         # TSP
         return self.init_embed(input)
 
-    def _inner(self, input, embeddings):
+    def _inner(self, input, embeddings, state):
 
         outputs = []
         sequences = []
-
-        state = self.problem.make_state(input)
 
         # Compute keys, values for the glimpse and keys for the logits once as they can be reused in every step
         fixed = self._precompute(embeddings)
@@ -424,6 +428,8 @@ class AttentionModel(nn.Module):
         # Compute logits (unnormalized log_p)
         log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask)
 
+
+
         if self.attention_type == "sparse":
             # log_p = entmax15(log_p / self.temp, dim=-1)
             # log_p = torch.log(log_p)
@@ -436,7 +442,7 @@ class AttentionModel(nn.Module):
 
         # if normalize and self.attention_type == "full":
         #     log_p = torch.log_softmax(log_p / self.temp, dim=-1)
-
+        #log_p[torch.isnan(log_p)] = -math.inf
         assert not torch.isnan(log_p).any()
 
         return log_p, mask
