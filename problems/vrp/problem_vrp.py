@@ -190,7 +190,7 @@ class VRPDataset(Dataset):
                 #we want a mixture of data densities in the training data
                 self.data = self.generate_default_density(size, num_samples/2, CAPACITIES)
                 self.data += self.generate_dense_data(size, num_samples/2, CAPACITIES, 0.5, 10)
-                print("mixed")
+                #print("mixed")
             else:
                 # uniform over (0,1)
                 self.data = self.generate_default_density(size, num_samples, CAPACITIES)

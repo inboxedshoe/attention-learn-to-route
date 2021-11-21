@@ -123,13 +123,17 @@ class StateCVRP(NamedTuple):
     def all_finished(self):
         return self.i.item() >= self.demand.size(-1) and self.visited.all()
 
+    def partial_finished(self):
+        #if all the last visited are 0 then we finished route
+        return not torch.all(self.visited_[:, :, -1])
+
     def get_finished(self):
         return self.visited.sum(-1) == self.visited.size(-1)
 
     def get_current_node(self):
         return self.prev_a
 
-    def get_mask(self, attention_neighborhood = 0):
+    def get_mask(self, attention_neighborhood=0, pause_on_depots=False):
         """
         Gets a (batch_size, n_loc + 1) mask with the feasible actions (0 = depot), depends on already visited and
         remaining capacity. 0 = feasible, 1 = infeasible
@@ -146,6 +150,7 @@ class StateCVRP(NamedTuple):
         exceeds_cap = (self.demand[self.ids, :] + self.used_capacity[:, :, None] > self.VEHICLE_CAPACITY)
         # Nodes that cannot be visited are already visited or too much demand to be served now
         mask_loc = visited_loc.to(exceeds_cap.dtype) | exceeds_cap
+
 
         #mask out any nodes not in k-nearest
         if attention_neighborhood !=0 :
@@ -172,6 +177,10 @@ class StateCVRP(NamedTuple):
             # is_not_neighbor = is_not_neighbor.index_fill_(-1,neighbors,False)     
 
 
+        if pause_on_depots:
+            if not self.partial_finished():
+                nodes_at_depot = (self.prev_a == 0).nonzero()[:, 0]
+                mask_loc[nodes_at_depot, :] = True
 
         # Cannot visit the depot if just visited and still unserved nodes
         mask_depot = (self.prev_a == 0) & ((mask_loc == 0).int().sum(-1) > 0)
