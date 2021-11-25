@@ -364,7 +364,7 @@ class AttentionModel(nn.Module):
                         else:
                             embeddings, _ = self.embedder(fixed_init, temp_mask)
                     #recompute
-                    fixed = self._precompute(embeddings)
+                    fixed = self._precompute(embeddings, (mask == False).sum(2).int())
 
 
             # print (mask.shape)
@@ -412,10 +412,13 @@ class AttentionModel(nn.Module):
             assert False, "Unknown decode type"
         return selected
 
-    def _precompute(self, embeddings, num_steps=1):
+    def _precompute(self, embeddings, current_num_nodes=None, num_steps=1):
 
         # The fixed context projection of the graph embedding is calculated only once for efficiency
-        graph_embed = embeddings.mean(1)
+        if current_num_nodes is None:
+            graph_embed = embeddings.mean(1)
+        else:
+            graph_embed = embeddings.sum(1)/current_num_nodes
         # fixed context = (batch_size, 1, embed_dim) to make broadcastable with parallel timesteps
         fixed_context = self.project_fixed_context(graph_embed)[:, None, :]
 
