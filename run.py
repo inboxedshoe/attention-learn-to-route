@@ -36,7 +36,7 @@ def run(opts):
         json.dump(vars(opts), f, indent=True)
 
     # Set the device
-    opts.device = torch.device("cuda:0" if opts.use_cuda else "cpu")
+    opts.device = torch.device("cuda:1" if opts.use_cuda else "cpu")
 
     # Figure out what's the problem
     problem = load_problem(opts.problem)
@@ -60,15 +60,18 @@ def run(opts):
         opts.hidden_dim,
         problem,
         n_encode_layers=opts.n_encode_layers,
-        mask_inner=True,
+        #changed
+        mask_inner=False,
         mask_logits=True,
         normalization=opts.normalization,
         tanh_clipping=opts.tanh_clipping,
         checkpoint_encoder=opts.checkpoint_encoder,
         shrink_size=opts.shrink_size,
-        attention_type = opts.attention_type,
-        attention_neighborhood = opts.attention_neighborhood,
-        encode_freq = opts.encode_freq
+        attention_type=opts.attention_type,
+        attention_neighborhood=opts.attention_neighborhood,
+        encode_freq=opts.encode_freq,
+        encoder_knn=opts.encoder_knn,
+        reencode_partial=opts.reencode_partial
     ).to(opts.device)
 
     # if opts.use_cuda and torch.cuda.device_count() > 1:
@@ -140,8 +143,9 @@ def run(opts):
 
     # Start the actual training loop
     # dense mix
+
     val_dataset = problem.make_dataset(
-        size=opts.graph_size, num_samples=opts.val_size, filename=opts.val_dataset, dense_mix=True)
+        size=opts.graph_size, num_samples=opts.val_size, filename=opts.val_dataset, dense_mix=opts.density_mixer)
 
     if opts.resume:
         epoch_resume = int(os.path.splitext(os.path.split(opts.resume)[-1])[0].split("-")[1])

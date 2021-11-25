@@ -12,14 +12,18 @@ def get_options(args=None):
     parser.add_argument('--problem', default='cvrp', help="The problem to solve, default 'cvrp'")
     parser.add_argument('--attention_type', default='softmax', help="Type of attention, full/sparse")
     parser.add_argument('--attention_neighborhood', type=int, default=0, help="Closest N neighbors to consider for attention, default = 0")
+    parser.add_argument('--encoder_knn', type=int, default=0, help="knn for the decoder module")
+    parser.add_argument('--density_mixer', type=float, default=1, help="density ratio for 50% of the data, default 1.0")
+    parser.add_argument('--reencode_partial', type=bool, default=True, help="reencode at a partial route completion")
+
     # SIZE
-    parser.add_argument('--graph_size', type=int, default=50, help="The size of the problem graph")
+    parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=512, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=1280000, help='Number of instances per epoch during training')
     parser.add_argument('--val_size', type=int, default=10000,
                         help='Number of instances used for reporting validation performance')
     #SIZE
-    parser.add_argument('--val_dataset', type=str, default="data/CVRP/vrp50_validation_seed4321.pkl", help='Dataset file to use for validation')
+    parser.add_argument('--val_dataset', type=str, default="data/CVRP/vrp20_validation_seed4321.pkl", help='Dataset file to use for validation')
 
     # Model
     parser.add_argument('--model', default='attention', help="Model, 'attention' (default) or 'pointer'")
@@ -54,7 +58,7 @@ def get_options(args=None):
                              'used for warmup phase), 0 otherwise. Can only be used with rollout baseline.')
     parser.add_argument('--eval_batch_size', type=int, default=1024,
                         help="Batch size to use during (baseline) evaluation")
-    parser.add_argument('--checkpoint_encoder', action='store_false',
+    parser.add_argument('--checkpoint_encoder', type=bool, default=True,
                         help='Set to decrease memory usage by checkpointing encoder')
     parser.add_argument('--shrink_size', type=int, default=None,
                         help='Shrink the batch size if at least this many instances in the batch are finished'
@@ -66,7 +70,7 @@ def get_options(args=None):
     parser.add_argument('--log_step', type=int, default=50, help='Log info every log_step steps')
     parser.add_argument('--log_dir', default='logs', help='Directory to write TensorBoard information to')
     #NAME
-    parser.add_argument('--run_name', default='run_50_encoder_record', help='Name to identify the run')
+    parser.add_argument('--run_name', default='run_20_partial', help='Name to identify the run')
     parser.add_argument('--output_dir', default='outputs', help='Directory to write output models to')
     parser.add_argument('--epoch_start', type=int, default=0,
                         help='Start at epoch # (relevant for learning rate decay)')

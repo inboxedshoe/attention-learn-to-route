@@ -165,7 +165,7 @@ class RolloutBaseline(Baseline):
         if dataset is None:
             #dense mix
             self.dataset = self.problem.make_dataset(
-                size=self.opts.graph_size, num_samples=self.opts.val_size, dense_mix=True)
+                size=self.opts.graph_size, num_samples=self.opts.val_size, dense_mix=self.opts.density_mixer)
         else:
             self.dataset = dataset
         print("Evaluating baseline model on evaluation dataset")

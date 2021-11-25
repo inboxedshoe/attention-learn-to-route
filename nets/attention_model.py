@@ -58,7 +58,9 @@ class AttentionModel(nn.Module):
                  shrink_size=None,
                  attention_type="full",
                  attention_neighborhood=0,
-                 encode_freq=0):
+                 encode_freq=0,
+                 encoder_knn=0,
+                 reencode_partial=False):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -75,6 +77,9 @@ class AttentionModel(nn.Module):
 
         self.mask_inner = mask_inner
         self.mask_logits = mask_logits
+
+        self.encoder_knn = encoder_knn
+        self.reencode_partial = reencode_partial
 
         self.problem = problem
         self.n_heads = n_heads
@@ -157,26 +162,16 @@ class AttentionModel(nn.Module):
         :return:
         """
 
-        state = self.problem.make_state(input)
-
-        # call the encoder the first time
-        if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
-            embeddings, encoded_compat = checkpoint(self.embedder,
-                                                self._init_embed(input),
-                                                state.get_neighborhood_mask(attention_neighborhood=20).repeat(self.n_heads, 1, 1))
-        else:
-            embeddings, encoded_compat = self.embedder(self._init_embed(input))
-
         #_log_p, pi = self._inner(input, embeddings)
-        _log_p, pi = self._inner(input, embeddings,state)
+        _log_p, pi = self._inner(input)
 
         cost, mask = self.problem.get_costs(input, pi)
         # Log likelihood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
 
-        encoder_outputs = [embeddings, encoded_compat]
+        encoder_outputs = None
 
-        ll = self._calc_log_likelihood(_log_p, pi, mask)
+        ll = self._calc_log_likelihood(_log_p, pi, None)
         # ll = self._calc_sparse_omega(_log_p, pi, mask)
         if return_pi:
             return cost, ll, pi
@@ -276,33 +271,52 @@ class AttentionModel(nn.Module):
         # TSP
         return self.init_embed(input)
 
-    def _inner(self, input, embeddings, state):
+    def _inner(self, input):
+    #def _inner(self, input, embeddings):
+
+        #state = self.problem.make_state(input)
 
         outputs = []
         sequences = []
 
-        # Compute keys, values for the glimpse and keys for the logits once as they can be reused in every step
+        # get base encoding for input to pass into encoder
+        fixed_init = self._init_embed(input)
+
+        # get current state
+        state = self.problem.make_state(input)
+
+        # call the encoder the first time
+        if self.encoder_knn > 0:
+            if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+                embeddings, encoded_compat = checkpoint(self.embedder,
+                                                        fixed_init,
+                                                        state.get_neighborhood_mask(
+                                                            attention_neighborhood=self.encoder_knn).repeat(self.n_heads, 1,
+                                                                                                            1))
+            else:
+                embeddings, encoded_compat = self.embedder(fixed_init,
+                                                           state.get_neighborhood_mask(
+                                                               attention_neighborhood=self.encoder_knn).repeat(self.n_heads,
+                                                                                                               1, 1))
+        else:
+            if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+                embeddings, encoded_compat = checkpoint(self.embedder, fixed_init)
+            else:
+                embeddings, encoded_compat = self.embedder(fixed_init)
+
+        # Compute keys, values for the glimpse and keys for the logits
         fixed = self._precompute(embeddings)
 
         batch_size = state.ids.size(0)
+        # get the first one outside
+        log_p, mask = self._get_log_p(fixed, state)
 
         # Perform decoding steps
         i = 0
+
         while not (self.shrink_size is None and state.all_finished()):
 
-            if self.shrink_size is not None:
-                unfinished = torch.nonzero(state.get_finished() == 0)
-                if len(unfinished) == 0:
-                    break
-                unfinished = unfinished[:, 0]
-                # Check if we can shrink by at least shrink_size and if this leaves at least 16
-                # (otherwise batch norm will not work well and it is inefficient anyway)
-                if 16 <= len(unfinished) <= state.ids.size(0) - self.shrink_size:
-                    # Filter states
-                    state = state[unfinished]
-                    fixed = fixed[unfinished]
 
-            log_p, mask = self._get_log_p(fixed, state)
 
             # Select the indices of the next nodes in the sequences, result (batch_size) long
             # changed
@@ -315,35 +329,51 @@ class AttentionModel(nn.Module):
 
             state = state.update(selected)
 
-            # Now make log_p, selected desired output size by 'unshrinking'
-            if self.shrink_size is not None and state.ids.size(0) < batch_size:
-                log_p_, selected_ = log_p, selected
-                log_p = log_p_.new_zeros(batch_size, *log_p_.size()[1:])
-                selected = selected_.new_zeros(batch_size)
-
-                log_p[state.ids[:, 0]] = log_p_
-                selected[state.ids[:, 0]] = selected_
-
             # Collect output of step
             outputs.append(log_p[:, 0, :])
             sequences.append(selected)
 
+            log_p, mask = self._get_log_p(fixed, state)
+
             i += 1
+
+            if (self.encode_freq != 0 and i % self.encode_freq == 0):
+                if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+                    embeddings, _ = checkpoint(self.embedder, self._init_embed(input), mask)
+                else:
+                    embeddings, _ = self.embedder(self._init_embed(input), mask)
+                #recompute
+                fixed = self._precompute(embeddings)
+
+            if self.reencode_partial:
+                if state.partial_finished():
+                    if self.encoder_knn > 0:
+                        #we want to re encode with visited mask and neighbor mask
+                        if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+                            embeddings, _ = checkpoint(self.embedder, fixed_init,
+                                                       state.get_encoder_full_mask(mask))
+                        else:
+                            embeddings, _ = self.embedder(fixed_init, state.get_encoder_full_mask(mask))
+                    else:
+                        # we only want to encode with visited mask:
+                        # we want the depot encodings to be allowed
+                        temp_mask = mask.repeat(8, mask.shape[2], 1)
+                        temp_mask[:, :, 0] = False
+                        if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
+                            embeddings, _ = checkpoint(self.embedder, fixed_init, temp_mask)
+                        else:
+                            embeddings, _ = self.embedder(fixed_init, temp_mask)
+                    #recompute
+                    fixed = self._precompute(embeddings)
+
 
             # print (mask.shape)
             # print (mask[0])
             # print (mask[0] == False)
-            if self.encode_freq != 0 and i % self.encode_freq == 0:
-                if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
-                    embeddings, _ = checkpoint(self.embedder, self._init_embed(input), mask == False)
-                else:
-                    embeddings, _ = self.embedder(self._init_embed(input), mask == False)
-
-                fixed = self._precompute(embeddings)
-                # print("re_embed")
 
         # Collected lists, return Tensor
         return torch.stack(outputs, 1), torch.stack(sequences, 1)
+
 
     def sample_many(self, input, batch_rep=1, iter_rep=1):
         """
@@ -355,7 +385,8 @@ class AttentionModel(nn.Module):
         return sample_many(
             lambda input: self._inner(*input),  # Need to unpack tuple into arguments
             lambda input, pi: self.problem.get_costs(input[0], pi),  # Don't need embeddings as input to get_costs
-            (input, self.embedder(self._init_embed(input))[0]),  # Pack input with embeddings (additional input)
+            #(input, self.embedder(self._init_embed(input))[0], self.problem.make_state(input)),  # Pack input with embeddings (additional input) and state
+            (input),
             batch_rep, iter_rep
         )
 
@@ -423,7 +454,7 @@ class AttentionModel(nn.Module):
         glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(fixed, state)
 
         # Compute the mask
-        mask = state.get_mask(self.attention_neighbourhood)
+        mask = state.get_mask(self.attention_neighbourhood, self.reencode_partial)
 
         # Compute logits (unnormalized log_p)
         log_p, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask)

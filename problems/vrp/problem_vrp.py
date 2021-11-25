@@ -165,7 +165,7 @@ def make_instance(args):
 
 class VRPDataset(Dataset):
     
-    def __init__(self, filename=None, size=50, num_samples=1000000, offset=0, dense_mix=False):
+    def __init__(self, filename=None, size=50, num_samples=1000000, offset=0, dense_mix=1.0):
         super(VRPDataset, self).__init__()
 
         self.data_set = []
@@ -186,10 +186,10 @@ class VRPDataset(Dataset):
                 100: 50.
             }
 
-            if dense_mix:
+            if dense_mix < 1.0:
                 #we want a mixture of data densities in the training data
                 self.data = self.generate_default_density(size, num_samples/2, CAPACITIES)
-                self.data += self.generate_dense_data(size, num_samples/2, CAPACITIES, 0.5, 10)
+                self.data += self.generate_dense_data(size, num_samples/2, CAPACITIES, dense_mix, 100)
                 #print("mixed")
             else:
                 # uniform over (0,1)

@@ -99,7 +99,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
     # dense data generation
     # also in reinforce_baselines.py and run.py
     training_dataset = baseline.wrap_dataset(problem.make_dataset(
-        size=opts.graph_size, num_samples=opts.epoch_size, dense_mix=True))
+        size=opts.graph_size, num_samples=opts.epoch_size, dense_mix=opts.density_mixer))
     #we need to shuffle the data incase theres a density mixture
     training_dataloader = DataLoader(training_dataset, batch_size=opts.batch_size, num_workers=0, shuffle=True)
 

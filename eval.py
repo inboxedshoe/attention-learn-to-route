@@ -71,7 +71,7 @@ def eval_dataset(dataset_path, width, softmax_temp, opts):
             )))
 
     else:
-        device = torch.device("cuda:0" if use_cuda else "cpu")
+        device = torch.device("cuda:1" if use_cuda else "cpu")
         dataset = model.problem.make_dataset(filename=dataset_path, num_samples=opts.val_size, offset=opts.offset)
         results = _eval_dataset(model, dataset, width, softmax_temp, opts, device)
 

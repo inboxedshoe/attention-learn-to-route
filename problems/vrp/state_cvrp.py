@@ -3,6 +3,7 @@ from typing import NamedTuple
 from utils.boolmask import mask_long2bool, mask_long_scatter
 import math
 
+
 class StateCVRP(NamedTuple):
     # Fixed input
     coords: torch.Tensor  # Depot + loc
@@ -125,7 +126,7 @@ class StateCVRP(NamedTuple):
 
     def partial_finished(self):
         #if all the last visited are 0 then we finished route
-        return not torch.all(self.visited_[:, :, -1])
+        return not torch.any(self.prev_a[:, -1])
 
     def get_finished(self):
         return self.visited.sum(-1) == self.visited.size(-1)
@@ -179,10 +180,12 @@ class StateCVRP(NamedTuple):
 
         if pause_on_depots:
             if not self.partial_finished():
-                nodes_at_depot = (self.prev_a == 0).nonzero()[:, 0]
-                mask_loc[nodes_at_depot, :] = True
+                instances_at_depot = (self.prev_a == 0).nonzero()[:, 0]
+                mask_loc[instances_at_depot, :] = True
 
         # Cannot visit the depot if just visited and still unserved nodes
+        # unserved nodes argument allows partial finished to continue in depot since
+        # it emulates all finished
         mask_depot = (self.prev_a == 0) & ((mask_loc == 0).int().sum(-1) > 0)
         return torch.cat((mask_depot[:, :, None], mask_loc), -1)
 
@@ -203,7 +206,20 @@ class StateCVRP(NamedTuple):
 
             mask = mask == 1
 
+            self.neighborhood_mask = mask
+
             return mask
+
+    def get_encoder_full_mask(self, mask):
+        """
+        Gets the full encoder mask that includes the neighborhood mask and the partial visited mask.
+        Input: default mask 1xN
+        Output: mask NxN
+        """
+
+        return self.neighborhood_mask.masked_fill(mask.unsqueeze(1), True)
+
+
 
     def construct_solutions(self, actions):
         return actions

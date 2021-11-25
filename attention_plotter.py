@@ -8,6 +8,7 @@ import numpy as np
 import pickle
 from utils.attention_plotter_utils import generate_graph, create_plotly
 
+import torch
 
 # initializing data and prepping first instances
 
@@ -22,8 +23,8 @@ with open("data/CVRP/" + dataset_name, 'rb') as dataset_file:
 
 
 # First Graph
-with open('graph_res/cvrp50-original.pkl', 'rb') as handle:
-    b = pickle.load(handle)
+with open('outputs/cvrp_20/run_20_encoder_record_20211118T010313/epoch-100-encoder-outputs.pkl', 'rb') as handle:
+    b = torch.load(handle)
 
 graphs = b[0]
 logs = b[1][instance].cpu().numpy()
@@ -36,7 +37,7 @@ fig = create_plotly(G, logs)
 
 
 # Second Graph
-with open('graph_res/cvrp50-sparse.pkl', 'rb') as handle_1:
+with open('outputs/run_20_encoder_record_20211118T010313/epoch-100-encoder-outputs.pkl', 'rb') as handle_1:
     b_1 = pickle.load(handle_1)
 
 graphs_1 = b_1[0]

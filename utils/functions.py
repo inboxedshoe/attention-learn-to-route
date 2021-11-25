@@ -8,6 +8,8 @@ from tqdm import tqdm
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing import Pool
 import torch.nn.functional as F
+from typing import NamedTuple
+from problems.vrp.state_cvrp import StateCVRP
 
 
 def load_problem(name):
@@ -173,6 +175,8 @@ def do_batch_rep(v, n):
         return {k: do_batch_rep(v_, n) for k, v_ in v.items()}
     elif isinstance(v, list):
         return [do_batch_rep(v_, n) for v_ in v]
+    elif isinstance(v, StateCVRP):
+        return v
     elif isinstance(v, tuple):
         return tuple(do_batch_rep(v_, n) for v_ in v)
 
