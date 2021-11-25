@@ -29,6 +29,7 @@ class AttentionBlock(nn.Module):
                  dropout=0.,
                  add_bias=True,
                  attention_activation=0,
+                 tanh_activation=False,
                  **kwargs):
         super(AttentionBlock, self).__init__()
 
@@ -40,6 +41,10 @@ class AttentionBlock(nn.Module):
         self.norm_type = norm_type
         self.dropout = dropout
         self.add_bias = add_bias
+
+        self.tanh_activate = tanh_activation
+        self.tanh1 = torch.nn.Tanh()
+        self.tanh2 = torch.nn.Tanh()
 
         self.MHA = MultiheadAttention(self.embed_dim,
                                       self.n_heads,
@@ -79,15 +84,29 @@ class AttentionBlock(nn.Module):
                      attn_mask=attn_mask,
                      key_padding_mask=key_padding_mask)
         h = h.contiguous()
+        # check skip connection
         if self.skip:
             h = h + x
-        h = self.norm_MHA(h)
+        # check tanh
+        if self.tanh_activate:
+            h = self.tanh1(h)
+        # check normalization
+        if self.norm_type is not None:
+            h = self.norm_MHA(h)
+        # check skip connection to save the temp before FF
         if self.skip:
             h_ = h
+        # do FF layers
         h = self.ff_layers(h)
+        # check skip connection
         if self.skip:
             h = h + h_
-        h = self.norm_linear(h)
+        # check tanh
+        if self.tanh_activate:
+            h = self.tanh1(h)
+        # check normalization
+        if self.norm_type is not None:
+            h = self.norm_linear(h)
         return h, weights
 
 # this implementation is heavely based on the pytorch library implementation which is based on the fairseq implementation 
