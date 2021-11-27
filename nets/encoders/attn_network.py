@@ -81,13 +81,15 @@ class AttentionBlock(nn.Module):
         h = h.contiguous()
         if self.skip:
             h = h + x
-        h = self.norm_MHA(h)
+        if self.norm_type is not None:
+            h = self.norm_MHA(h)
         if self.skip:
             h_ = h
         h = self.ff_layers(h)
         if self.skip:
             h = h + h_
-        h = self.norm_linear(h)
+        if self.norm_type is not None:
+            h = self.norm_linear(h)
         return h, weights
 
 # this implementation is heavely based on the pytorch library implementation which is based on the fairseq implementation 
@@ -590,6 +592,10 @@ def custom_scaled_dot_product_attention(
     if attn_mask is not None:
         attn += attn_mask
     attn = attention_function(attn, dim=-1)
+
+    # if attn_mask is not None:
+    #     attn[attn_mask.isinf()] = 0
+
     if dropout_p > 0.0:
         attn = F.dropout(attn, p=dropout_p)
     # (B, Nt, Ns) x (B, Ns, E) -> (B, Nt, E)

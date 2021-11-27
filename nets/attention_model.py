@@ -357,7 +357,9 @@ class AttentionModel(nn.Module):
                     else:
                         # we only want to encode with visited mask:
                         # we want the depot encodings to be allowed
-                        temp_mask = mask.repeat(8, mask.shape[2], 1)
+                        temp_mask = self.get_att_mask(mask.squeeze(1).to(torch.int64))
+                        temp_mask = torch.repeat_interleave(temp_mask, 8, dim=0)
+
                         temp_mask[:, :, 0] = False
                         if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
                             embeddings, _ = checkpoint(self.embedder, fixed_init, temp_mask)
@@ -374,6 +376,20 @@ class AttentionModel(nn.Module):
         # Collected lists, return Tensor
         return torch.stack(outputs, 1), torch.stack(sequences, 1)
 
+    def outer_pr(self, a, b):
+        """Outer product of matrices
+        """
+        return torch.einsum('ki,kj->kij', a, b)
+
+    def get_att_mask(self, mask):
+        # Create square attention mask from row-like mask
+        ones_mask = torch.ones_like(mask)
+
+        att_mask = self.outer_pr(mask, ones_mask) \
+                   + self.outer_pr(ones_mask, mask) \
+                   - self.outer_pr(mask, mask)
+
+        return att_mask.to(torch.bool)
 
     def sample_many(self, input, batch_rep=1, iter_rep=1):
         """
