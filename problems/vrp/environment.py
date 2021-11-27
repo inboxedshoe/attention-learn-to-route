@@ -124,9 +124,22 @@ class AgentVRP():
         # Place nodes with coordinates in order of decoder tour
         loc_with_depot = torch.cat([dataset["depot"][:, None, :], dataset["loc"]], dim=1)  # (batch_size, n_nodes, 2)
         #d = torch.gather(loc_with_depot, 1, pi.to(torch.int64))
-        d = loc_with_depot[pi]
+        #d = loc_with_depot[pi]
+        d = batch_gather_vec(loc_with_depot, pi.to(torch.int64))
+
         # Calculation of total distance
         # Note: first element of pi is not depot, but the first selected node in the path
         return (torch.sum(torch.norm(d[:, 1:] - d[:, :-1], p=2, dim=2), dim=1)
                 + torch.norm(d[:, 0] - dataset["depot"], p=2, dim=1)  # Distance from depot to first selected node
                 + torch.norm(d[:, -1] - dataset["depot"], p=2, dim=1))  # Distance from last selected node (!=0 for graph with longest path) to depot
+
+
+def batch_gather_vec(tensor, indices):
+    shape = list(tensor.shape)
+    flat_first = torch.reshape(
+        tensor, [shape[0] * shape[1]] + shape[2:])
+    offset = torch.reshape(
+        torch.arange(shape[0]).cuda() * shape[1],
+        [shape[0]] + [1] * (len(indices.shape) - 1))
+    output = flat_first[indices + offset]
+    return output

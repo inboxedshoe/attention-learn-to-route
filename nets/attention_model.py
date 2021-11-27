@@ -15,6 +15,7 @@ def set_decode_type(model, decode_type):
     model.set_decode_type(decode_type)
 
 
+
 class AttentionModel(nn.Module):
 
     def __init__(self,
@@ -272,7 +273,8 @@ class AttentionModel(nn.Module):
                 #
                 # cur_num_nodes = (mask == False).sum(2).int()
                 ###########################################################################################
-                att_mask = att_mask.repeat(8, 1, 1)  # make (batch_size*n_heads, n_nodes, n_nodes)
+                #att_mask_new = att_mask.repeat(8, 1, 1)  # make (batch_size*n_heads, n_nodes, n_nodes)
+                att_mask = torch.repeat_interleave(att_mask, 8, dim=0)
                 embeddings, context_vectors = self.embedder(inputs, att_mask, cur_num_nodes)
 
                 K_tanh, Q_context, K, V = self.get_projections(embeddings, context_vectors)
@@ -297,7 +299,7 @@ class AttentionModel(nn.Module):
                 log_p = self.get_log_p(mha, K_tanh, mask)  # (batch_size, 1, n_nodes)
 
                 # next step is to select node
-                selected = self._select_node(log_p, mask=mask)
+                selected = self._select_node(log_p.exp(), mask=mask)
 
                 state.step(selected)
 
@@ -310,7 +312,7 @@ class AttentionModel(nn.Module):
 
         _log_p, pi = torch.stack(outputs, 1), torch.stack(sequences, 1)
 
-        cost, _ = self.problem.get_costs(inputs, pi)
+        cost = self.problem.get_costs(inputs, pi)
 
         ll = self._calc_log_likelihood(_log_p, pi)
 
