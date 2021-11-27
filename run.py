@@ -15,7 +15,7 @@ from reinforce_baselines import NoBaseline, ExponentialBaseline, CriticBaseline,
 from nets.attention_model import AttentionModel
 from nets.pointer_network import PointerNetwork, CriticNetworkLSTM
 from utils import torch_load_cpu, load_problem
-
+from problems.vrp import environment
 
 def run(opts):
 
@@ -36,7 +36,7 @@ def run(opts):
         json.dump(vars(opts), f, indent=True)
 
     # Set the device
-    opts.device = torch.device("cuda:1" if opts.use_cuda else "cpu")
+    opts.device = torch.device("cuda:0" if opts.use_cuda else "cpu")
 
     # Figure out what's the problem
     problem = load_problem(opts.problem)

@@ -609,6 +609,9 @@ def custom_scaled_dot_product_attention(
     if attn_mask is not None:
         attn += attn_mask
     attn = attention_function(attn, dim=-1)
+    #remove any nans from fully masked data
+    if attn_mask is not None:
+        attn[attn_mask.isinf()] = 0
     if dropout_p > 0.0:
         attn = F.dropout(attn, p=dropout_p)
     # (B, Nt, Ns) x (B, Ns, E) -> (B, Nt, E)

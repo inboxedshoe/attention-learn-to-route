@@ -7,6 +7,7 @@ import torch_geometric.nn as gnn
 from nets.encoders.attn_network import AttentionBlock
 from nets.encoders.base_encoder import BaseEncoder
 
+
 class AttentionEncoder(BaseEncoder):
     """Attention encoder model for node embeddings."""
 
@@ -131,6 +132,7 @@ class AttentionEncoder(BaseEncoder):
 
         return h, weights
 
+
 class DynamicAttentionEncoder(BaseEncoder):
     """Attention encoder model for node embeddings."""
 
@@ -147,6 +149,7 @@ class DynamicAttentionEncoder(BaseEncoder):
                  norm_type: Optional[str] = None,
                  attention_neighborhood: int = 0,
                  num_layers: int = 2,
+                 tanh_activation=False,
                  **kwargs):
         """
 
@@ -167,7 +170,7 @@ class DynamicAttentionEncoder(BaseEncoder):
             n_heads: number of heads in the MHA network
             attention_neighborhood: size of node neighborhood to consider for node attention
         """
-        super(AttentionEncoder, self).__init__(input_dim, output_dim)
+        super(DynamicAttentionEncoder, self).__init__(input_dim, output_dim)
 
         self.attention_activation = {
             'softmax': 0,
@@ -193,11 +196,14 @@ class DynamicAttentionEncoder(BaseEncoder):
         self.num_layers = num_layers
         self.attention_blocks = None
 
+        self.tanh_activation = tanh_activation
+
         self.create_layers(**kwargs)
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.input_proj.reset_parameters()
+        self.init_embed_depot.reset_parameters()
+        self.init_embed.reset_parameters()
         if self.output_dim != 0:
             self.output_proj.reset_parameters()
 
@@ -233,6 +239,7 @@ class DynamicAttentionEncoder(BaseEncoder):
                 add_bias=self.add_bias,
                 skip=self.skip,
                 attention_activation=self.attention_activation,
+                tanh_activation=self.tanh_activation,
                 **kwargs
             )
 
@@ -248,8 +255,8 @@ class DynamicAttentionEncoder(BaseEncoder):
         # project input onto embedding space
         # h = self.input_proj(features.view(-1, features.size(-1))).view(*features.size()[:2], -1)
 
-        h_depot = self.init_embed_depot(input[0])[:, None, :]
-        h_nodes = self.init_embed(torch.cat((input[1], input[2][:, :, None]), dim=-1))
+        h_depot = self.init_embed_depot(input["depot"])[:, None, :]
+        h_nodes = self.init_embed(torch.cat((input["loc"], input["demand"][:, :, None]), dim=-1))
 
         h = torch.cat((h_depot, h_nodes), dim=1)
 

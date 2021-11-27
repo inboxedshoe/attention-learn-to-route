@@ -8,9 +8,12 @@ from torch import Tensor
 import math
 
 from nets.encoders.kool_encoder import AttentionEncoder
+from nets.encoders.kool_encoder import DynamicAttentionEncoder
+from problems.vrp.environment import AgentVRP
 
 def set_decode_type(model, decode_type):
     model.set_decode_type(decode_type)
+
 
 class AttentionModel(nn.Module):
 
@@ -39,19 +42,23 @@ class AttentionModel(nn.Module):
         self.decode_type = "greedy"
 
         # VRP attributes
-        self.problem = problem
+        #self.problem = problem
+        self.problem = AgentVRP
         self.num_heads = n_heads
 
         # encoder
-        self.embedder = AttentionEncoder(
+        #TODO: try no batch, with tanh
+        self.embedder = DynamicAttentionEncoder(
             input_dim=embedding_dim,
             output_dim=0,  # optional for final output FF layer
             n_heads=n_heads,
             attention_activation="softmax",
             num_layers=self.n_encode_layers,
-            norm_type=normalization,
+            #norm_type=normalization,
+            norm_type=None,
             dropout=0,
-            skip=True
+            skip=True,
+            tanh_activation=True
         )
 
         # decoder
@@ -61,15 +68,15 @@ class AttentionModel(nn.Module):
         assert head_dim * n_heads == hidden_dim, "<hidden_dim> must be divisible by <num_heads>!"
         self.head_dim = head_dim
 
-        self.dk_get_locp = torch.tensor(hidden_dim, dtype=torch.float32)
+        self.dk_get_loc_p = torch.tensor(hidden_dim, dtype=torch.float32)
         self.dk_mha_decoder = torch.tensor(head_dim, dtype=torch.float32)
 
         self.clip_tanh = tanh_clipping
 
         self.wq_context = nn.Linear(self.embedding_dim, self.hidden_dim)
-        self.wq_step_context = nn.Linear(self.embedding_dim, self.hidden_dim)
+        self.wq_step_context = nn.Linear(self.embedding_dim+1, self.hidden_dim)
 
-        self.wk_context = nn.Linear(self.embedding_dim, self.hidden_dim)
+        self.wk = nn.Linear(self.embedding_dim, self.hidden_dim)
         self.wk_tanh = nn.Linear(self.embedding_dim, self.hidden_dim)
 
         self.wv = nn.Linear(self.hidden_dim, self.hidden_dim)
@@ -88,24 +95,24 @@ class AttentionModel(nn.Module):
         )
 
     def _select_node(self, probs, mask):
-
+        #probs[probs.isnan()] = 0
         assert (probs == probs).all(), "Probs should not contain any nans"
 
         if self.decode_type == "greedy":
-            _, selected = probs.max(1)
+            _, selected = probs.max(2)
 
         elif self.decode_type == "sampling":
-            selected = probs.multinomial(1).squeeze(1)
+            selected = probs.squeeze(1).multinomial(1)
 
-            # Check if sampling went OK, can go wrong due to bug on GPU
-            # See https://discuss.pytorch.org/t/bad-behavior-of-multinomial-function/10232
-            while mask.gather(1, selected.unsqueeze(-1)).data.any():
-                print('Sampled bad values, resampling!')
-                selected = probs.multinomial(1).squeeze(1)
+            # # Check if sampling went OK, can go wrong due to bug on GPU
+            # # See https://discuss.pytorch.org/t/bad-behavior-of-multinomial-function/10232
+            # while mask.gather(1, selected.unsqueeze(-1)).data.any():
+            #     print('Sampled bad values, resampling!')
+            #     selected = probs.squeeze(1).multinomial(1)
 
         else:
             assert False, "Unknown decode type"
-        return selected
+        return selected.reshape(-1)
 
     def get_step_context(self, state, embeddings):
         """Takes a state and graph embeddings,
@@ -113,13 +120,13 @@ class AttentionModel(nn.Module):
            that is related to RL Agent last step.
         """
         # index of previous node
-        current_node = state.get_current_node()
+        current_node = state.prev_a
         batch_size, num_steps = current_node.size()
 
         # from embeddings=(batch_size, n_nodes, input_dim) select embeddings of previous nodes
         #TODO: check if replace current_node with prev_a (check dimension values)
         cur_embedded_node = torch.gather(embeddings, 1,
-                            current_node.contiguous()
+                            current_node.to(torch.int64).contiguous()
                                 .view(batch_size, num_steps, 1)
                                 .expand(batch_size, num_steps, embeddings.size(-1))
                         ).view(batch_size, num_steps, embeddings.size(-1))
@@ -148,13 +155,21 @@ class AttentionModel(nn.Module):
         compatibility = torch.matmul(Q, K.transpose(-2, -1)) / torch.sqrt(self.dk_mha_decoder)
 
         if mask is not None:
-            compatibility[mask[None, :, :, None, :].expand_as(compatibility)] = -math.inf
+            compatibility[mask[:, None, :, :].expand_as(compatibility)] = -math.inf
+            # compatibility = torch.where(mask[:, None, :, :].expand_as(compatibility),
+            #                          torch.ones_like(compatibility) * (-np.inf),
+            #                          compatibility)
 
         # apply softmax
         compatibility = F.softmax(compatibility, dim=-1)  # (batch_size, num_heads, seq_len_q, seq_len_k)
-
-        #get attention
+        if mask is not None:
+            compatibility[mask[:, None, :, :].expand_as(compatibility)] = 0
+        # get attention
         attention = torch.matmul(compatibility, V)  # (batch_size, num_heads, seq_len_q, head_depth)
+
+        # fix attention size
+        attention = attention.permute(0, 2, 1, 3)
+        attention = attention.reshape(self.batch_size, -1, self.embedding_dim)
 
         output = self.w_out(attention)  # (batch_size, seq_len_q, output_dim), seq_len_q = 1 for context att in decoder
 
@@ -174,7 +189,7 @@ class AttentionModel(nn.Module):
 
         compatibility = torch.matmul(Q, K.transpose(-2, -1)) / torch.sqrt(self.dk_get_loc_p)
 
-        #tanh clipping
+        # tanh clipping
         if self.clip_tanh:
             x = torch.tanh(compatibility) * self.clip_tanh
 
@@ -189,8 +204,10 @@ class AttentionModel(nn.Module):
             #                     compatibility
             #                      )
 
-            if mask is not None:
-                compatibility[mask[None, :, :, None, :].expand_as(compatibility)] = -math.inf
+             compatibility[mask] = -math.inf
+            # compatibility = torch.where(mask,
+            #                             torch.ones_like(compatibility) * (-np.inf),
+            #                             compatibility)
 
         log_p = torch.log_softmax(compatibility, dim=-1)  # (batch_size, seq_len_q, seq_len_k)
 
@@ -226,6 +243,7 @@ class AttentionModel(nn.Module):
 
     def forward(self, inputs, return_pi=False):
 
+        state = self.problem(inputs, device=inputs["demand"].get_device())
         embeddings, mean_graph_emb = self.embedder(inputs)
 
         self.batch_size = embeddings.shape[0]
@@ -233,7 +251,7 @@ class AttentionModel(nn.Module):
         outputs = []
         sequences = []
 
-        state = self.problem(inputs)
+        #state = self.problem.make_state(inputs)
 
         K_tanh, Q_context, K, V = self.get_projections(embeddings, mean_graph_emb)
 
@@ -244,11 +262,17 @@ class AttentionModel(nn.Module):
         while not state.all_finished():
 
             if i > 0:
-                state.i = torch.zeros(1, dtype=torch.int64)
+                state.i = torch.zeros(1, dtype=torch.int64, device=inputs["demand"].get_device())
                 att_mask, cur_num_nodes = state.get_att_mask()
 
-
-                #TODO initial embed the inputs first
+                #####################################TRIAL#################################################
+                # mask = state.get_mask()  # (batch_size, 1, n_nodes) with True/False indicating where agent can go
+                # att_mask = mask.repeat(8, mask.shape[2], 1)  # make (batch_size*n_heads, n_nodes, n_nodes)
+                # att_mask[:, :, 0] = False  # depots always available
+                #
+                # cur_num_nodes = (mask == False).sum(2).int()
+                ###########################################################################################
+                att_mask = att_mask.repeat(8, 1, 1)  # make (batch_size*n_heads, n_nodes, n_nodes)
                 embeddings, context_vectors = self.embedder(inputs, att_mask, cur_num_nodes)
 
                 K_tanh, Q_context, K, V = self.get_projections(embeddings, context_vectors)
@@ -273,7 +297,7 @@ class AttentionModel(nn.Module):
                 log_p = self.get_log_p(mha, K_tanh, mask)  # (batch_size, 1, n_nodes)
 
                 # next step is to select node
-                selected = self._select_node(log_p, mask=None)
+                selected = self._select_node(log_p, mask=mask)
 
                 state.step(selected)
 
@@ -286,42 +310,14 @@ class AttentionModel(nn.Module):
 
         _log_p, pi = torch.stack(outputs, 1), torch.stack(sequences, 1)
 
-        cost = self.problem.get_costs(inputs, pi)
+        cost, _ = self.problem.get_costs(inputs, pi)
 
-        ll = self.get_log_likelihood(_log_p, pi)
+        ll = self._calc_log_likelihood(_log_p, pi)
 
         if return_pi:
             return cost, ll, pi
 
-        return cost, ll
+        return cost, ll, None
 
 
-
-#
-# ============= #
-# ### TEST #### #
-# ============= #
-def _test(
-        bs: int = 5,
-        n: int = 10,
-        cuda=False,
-        seed=1
-):
-    import torch
-    device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
-    torch.manual_seed(seed)
-
-    I = 32
-    O = 10
-    nf = torch.randn(bs, n, I).to(device)
-    obs = RPObs(node_features=nf, current_tour=None, best_tour=None)
-    emb = RPEmb(
-        node_feature_emb=nf,
-        aggregated_emb=torch.randn(bs, I).to(device),
-        option_set_emb=nf
-    )
-
-    d = AttnDecoder(I, O).to(device)
-    logits, _ = d(obs, emb)
-    assert logits.size() == torch.empty((bs, O)).size()
 
